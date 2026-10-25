@@ -125,3 +125,12 @@ Solo playback never invokes shared-room playback or skip RPCs. Local solo resume
 positions are stored per film and per profile in the current browser, not synced
 between devices. The movie shelf and prominent presence controls remain hidden
 while a screening is active.
+
+## Playback drift and buffering
+
+The partner screen only applies playback seeks backwards when the synchronized
+room revision changes (an actual play/pause/skip/seek command) or on initial
+media load. Routine 7-second state polls of an unchanged revision do not force
+the local video position. Once video is ready and actually playing, a device
+more than 10 seconds behind may catch up forward; buffering or a local player
+ahead of the server time never triggers an automatic backwards correction.

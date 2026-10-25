@@ -843,7 +843,12 @@ async function applyRoom(incoming){
       if(player.readyState>=1)syncPlayback();
       else player.addEventListener("loadedmetadata",syncPlayback,{once:true});
     }
-  }else if(oldPath===path)syncPlayback();
+  }else if(oldPath===path && playbackChanged){
+    // A new room revision represents a real playback command (play, pause, seek
+    // or skip); honor it, including intentional backward seeks.
+    // Repeated polling of an unchanged revision must not seek the movie backward.
+    syncPlayback();
+  }
 }
 async function attachSubtitles(path,token){
   for(const old of player.querySelectorAll("track"))old.remove();
@@ -868,13 +873,18 @@ async function attachSubtitles(path,token){
   $("captionsBtn").hidden=player.querySelectorAll("track").length===0;
   updatePlayerIndicators();
 }
-function syncPlayback(){
+function syncPlayback({forwardOnly=false}={}){
   const room=state.room;
   if(!room?.library_path || !player.src || player.readyState<1)return;
   const target=wantedPosition(room);
   const duration=Number.isFinite(player.duration)?player.duration:0;
   const bounded=Math.max(0,Math.min(duration||864000,target));
-  if(!state.scrubbing && Math.abs(player.currentTime-bounded)>1.5){
+  const drift=bounded-player.currentTime;
+  // Explicit shared commands may seek in either direction; drift healing may
+  // only catch up forward, and only when local playback is actually running.
+  const shouldSeek=forwardOnly?drift>10:Math.abs(drift)>1.5;
+  if(!state.scrubbing && !player.seeking && shouldSeek &&
+     (!forwardOnly||(!player.paused && player.readyState>=3))){
     try{player.currentTime=bounded;}catch(err){console.warn(err);}
   }
   if(room.is_playing && (!duration || bounded<duration-.2)){
@@ -1305,8 +1315,14 @@ function bindEvents(){
       try{
         const room=await fetchRoom(state.room.id);
         if(state.room?.id===room.id)await applyRoom(room);
-        if(player.readyState>=1 && state.room?.is_playing &&
-          Math.abs(player.currentTime-wantedPosition(state.room))>3)syncPlayback();
+        // Network buffering can stop local video time while room time advances.
+        // Only catch UP when well behind, after playback has resumed; never
+        // rewind an already-playing movie because of routine polling/clock skew.
+        if(state.room?.is_playing && player.readyState>=3 &&
+           !player.paused && !player.seeking && !state.scrubbing &&
+           wantedPosition(state.room)-player.currentTime>10){
+          syncPlayback({forwardOnly:true});
+        }
       }catch(err){console.warn("Cinema check:",err);}
     }
   },7000);
