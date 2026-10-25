@@ -362,3 +362,90 @@
   background:#f8f3fb;
   color:#1a1321;
 }
+
+
+/* Cinema Choopistha v2 — choose solo or a jointly-approved screening. */
+.mode-view,.lobby-view{min-height:100svh;background:radial-gradient(ellipse at 50% 8%,#3024454d,transparent 55%),#09080d}
+.mode-content{max-width:1010px;margin:auto;min-height:100svh;display:flex;flex-direction:column;justify-content:center;padding:100px 24px 65px}
+.mode-intro{text-align:center;margin-bottom:44px}
+.mode-heart{display:inline-block;color:#bba1ee;font-size:30px;margin-bottom:21px;filter:drop-shadow(0 0 16px #8c59d879)}
+.mode-intro .eyebrow,.lobby-hero .eyebrow,.lobby-heading .eyebrow{color:#ad94dc;font-size:10px;margin-bottom:12px}
+.mode-intro h1,.lobby-hero h1{font-family:Manrope,sans-serif;font-size:clamp(34px,5.2vw,63px);line-height:1.1;letter-spacing:-.055em;margin:0 0 15px}
+.mode-intro>p:last-child,.lobby-hero>p:not(.eyebrow){font-size:14px;color:#aaa5b0;line-height:1.7}
+.mode-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:19px}
+.mode-card{text-align:left;display:flex;flex-direction:column;align-items:flex-start;min-height:270px;gap:14px;padding:30px 32px;border-radius:19px;color:#f9f4ff;background:linear-gradient(155deg,#221d2b,#121116);border:1px solid #ffffff1b;box-shadow:0 13px 40px #0004;transition:border .2s,transform .2s,background .2s}
+.mode-card:hover,.mode-card:focus-visible{border-color:#b8a1ea;transform:translateY(-3px);background:linear-gradient(150deg,#312541,#151219)}
+.mode-icon{display:grid;place-items:center;height:62px;width:62px;border-radius:17px;background:#7961a62e;color:#d1b9ff;margin-bottom:6px}
+.mode-icon-heart{font-size:40px;background:linear-gradient(120deg,#713dcf55,#a48be95c);line-height:1}
+.mode-card strong{font-family:Manrope,sans-serif;font-size:clamp(18px,2.3vw,23px);letter-spacing:-.04em}
+.mode-card>span:not(.mode-icon){font-size:13px;line-height:1.7;color:#b6aebc;max-width:310px}
+.mode-card small{font-size:12px;color:#d2bafa;font-weight:700;margin-top:auto}
+.mode-card small span{margin-left:7px}
+.solo-top{display:flex;justify-content:space-between;align-items:center;padding:18px clamp(24px,6.1vw,88px);background:#0e0d12;border-bottom:1px solid #ffffff13}
+.solo-flag{color:#a19aaa;font-size:11px;letter-spacing:.06em;font-weight:700}
+.lobby-shell{width:min(1160px,100%);margin:auto;padding:24px clamp(18px,4vw,50px) 100px}
+.lobby-back{margin-bottom:15px}
+.lobby-hero{display:flex;align-items:center;flex-direction:column;text-align:center;padding:14px 16px 35px}
+.lobby-heart{font-size:46px;line-height:1;color:#bd9bf5;filter:drop-shadow(0 0 24px #9560e36b);animation:heart-breathe 2s ease-in-out infinite;margin:14px 0 25px}
+.lobby-hero h1{font-size:clamp(29px,4.1vw,48px)}
+.lobby-hero>p:not(.eyebrow){margin:0;max-width:550px}
+.lobby-people{display:flex;align-items:center;justify-content:center;gap:clamp(18px,6vw,60px);margin:35px auto 0}
+.lobby-person{display:flex;align-items:center;flex-direction:column;gap:8px;min-width:100px;opacity:.55;transition:opacity .2s}
+.lobby-person.present{opacity:1}
+.lobby-avatar{display:grid;place-items:center;width:64px;height:64px;border-radius:19px;color:white;font-family:Manrope,sans-serif;font-size:31px;font-weight:800;border:1px solid #ffffff1e}
+.lobby-avatar-k{background:linear-gradient(130deg,#b45083,#513666)}
+.lobby-avatar-s{background:linear-gradient(130deg,#9c82d4,#48427b)}
+.lobby-person strong{font-size:14px}
+.lobby-person small{font-size:11px;color:#a6a0ad}
+.lobby-person.present small{color:#c6acfc}
+.lobby-join-symbol{font-size:23px;color:#826b9a;transform:translateY(-10px)}
+.lobby-recommend,.lobby-voting{border-top:1px solid #ffffff14;padding-top:36px;margin-top:17px}
+.lobby-heading{text-align:center;margin:0 0 28px}
+.lobby-heading h2{font-family:Manrope,sans-serif;font-size:clamp(22px,2.8vw,31px);letter-spacing:-.04em;margin:0 0 7px}
+.lobby-heading>p:last-child{color:#a8a0ad;font-size:13px;margin:0}
+.lobby-film-grid{justify-content:center;flex-wrap:wrap;overflow:visible;gap:18px}
+.lobby-film-grid .movie-card{flex-basis:clamp(142px,16vw,190px)}
+.lobby-film-grid .movie-card.selected .movie-card-cover{outline:3px solid #b392ed;outline-offset:3px}
+.lobby-film-grid .movie-card.selected .movie-title{color:#decaff}
+.lobby-vote-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;max-width:680px;margin:0 auto}
+.lobby-vote-card{background:#18151f;border:1px solid #ffffff21;border-radius:15px;padding:15px;display:flex;gap:15px;text-align:left;align-items:center;color:#f3edfa;min-width:0;transition:background .2s,border .2s}
+.lobby-vote-card:hover:not(:disabled){background:#2a2037;border-color:#aa88e3}
+.lobby-vote-card.chosen{border-color:#c4a4f8;background:#3c2b54}
+.lobby-vote-card img{width:75px;height:108px;object-fit:cover;border-radius:7px;background:#342b3e}
+.lobby-vote-card-info{display:flex;flex-direction:column;gap:7px;min-width:0}
+.lobby-vote-card-info strong{font-family:Manrope,sans-serif;font-size:16px;line-height:1.35}
+.lobby-vote-card-info small{font-size:11px;color:#b8afbd}
+.lobby-vote-notice{text-align:center;color:#d3c2ee;min-height:20px;margin:20px 0 0;font-size:13px}
+body[data-screen="watchView"] .watch-view{background:#050507}
+body[data-screen="watchView"] .watch-shell{max-width:min(1500px,100%);padding:15px clamp(8px,3vw,40px) 32px}
+body[data-screen="watchView"] .watch-top{margin-bottom:9px}
+body[data-screen="watchView"] .watch-info{border:0;justify-content:center;text-align:center;padding:16px 0 0}
+body[data-screen="watchView"] .watch-info h1{font-size:clamp(15px,2vw,22px);font-weight:600}
+body[data-screen="watchView"] .screen{border-radius:9px}
+body[data-mode="solo"] #chatWidget{display:none!important}
+body[data-mode="solo"] .watch-together-top{display:none!important}
+body[data-mode="together"] .watch-together-top{display:none!important}
+body[data-screen="watchView"] .up-next{display:none!important}
+@media(max-width:700px){
+ .mode-content{padding:100px 20px 45px;min-height:100svh}
+ .mode-cards{grid-template-columns:1fr;gap:13px}
+ .mode-intro{margin-bottom:24px}
+ .mode-card{min-height:195px;padding:23px;gap:10px}
+ .mode-icon{height:45px;width:45px;border-radius:12px;margin-bottom:0}
+ .mode-icon svg{width:24px;height:24px}
+ .mode-icon-heart{font-size:28px}
+ .lobby-shell{padding:14px 16px 70px}
+ .lobby-hero{padding-top:0}
+ .lobby-people{gap:15px}
+ .lobby-avatar{width:51px;height:51px;font-size:26px}
+ .lobby-vote-grid{grid-template-columns:1fr}
+ .lobby-film-grid{justify-content:flex-start;gap:13px}
+ .lobby-film-grid .movie-card{flex-basis:calc(50% - 7px)}
+ .solo-top{padding:8px 18px}
+ .solo-flag{display:none}
+ body[data-screen="watchView"] .watch-shell{padding:8px 0 20px}
+ body[data-screen="watchView"] .watch-top{padding:0 14px;margin-bottom:7px}
+ body[data-screen="watchView"] .watch-info{margin:0 12px;padding:10px 0 0}
+ body[data-screen="watchView"] .watch-info h1{font-size:16px}
+}
+@media(prefers-reduced-motion:reduce){.lobby-heart{animation:none}}

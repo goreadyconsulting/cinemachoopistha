@@ -22,7 +22,9 @@ const player=$("player");
 const state={ user:null,persona:null,selectedPersona:null,room:null,channel:null,movies:[],status:null,
   sourcePath:null,token:0,revision:-1,scrubbing:false,joining:false,heartbeat:false,
   pendingPlay:false,subtitleNames:[],chatOpen:false,chatUnread:0,chatLastId:0,
-  chatSeenIds:new Set(),chatSending:false,chatLoading:false,skipBusy:false };
+  chatSeenIds:new Set(),chatSending:false,chatLoading:false,skipBusy:false,
+  mode:null,lobby:null,lobbyRenderKey:"",lobbyEntering:false,lobbyPolling:false,
+  soloLastSaved:0 };
 let toastTimer=null;
 
 function inform(message){
@@ -32,10 +34,11 @@ function inform(message){
   toastTimer=setTimeout(()=>$("toast").hidden=true,4400);
 }
 function show(view){
-  for(const id of ["loadingView","loginView","homeView","watchView"])
+  for(const id of ["loadingView","loginView","modeView","lobbyView","homeView","watchView"])
     $(id).hidden=id!==view;
   $("topActions").hidden=view==="loginView"||view==="loadingView";
   document.body.dataset.screen=view;
+  document.body.dataset.mode=state.mode||"";
   if(view==="watchView")resetPlayerControls();
   else clearPlayerControlsTimer();
   if(state.persona){
@@ -330,7 +333,7 @@ function filmCard(movie){
   const format=document.createElement("span");format.className="movie-format";
   format.textContent=movie.mkv?"MKV · may not play":formatSize(movie.size);
   card.append(cover,name,format);
-  card.addEventListener("click",()=>enterCinema(movie));
+  card.addEventListener("click",()=>startSolo(movie).catch(err=>inform(err.message)));
   return card;
 }
 function renderHome(movies){
@@ -345,7 +348,7 @@ function renderHome(movies){
     ?(featured.title.match(/\((\d{4})\)/)?.[1]||"Movie")+"  ·  "+formatSize(featured.size)
     :"Just the two of us";
   $("featureDescription").textContent=featured
-    ?"A good film is better together.":"Our library is ready for its first movie.";
+    ?"Pick a film and enjoy your own private screening.":"Add a movie to start your private screening.";
   setPoster($("featurePoster"),featured);
   $("featureBackdrop").style.backgroundImage="url("+JSON.stringify(FALLBACK_POSTER)+")";
   $("watchTogetherBtn").disabled=!featured;
@@ -380,8 +383,7 @@ function updateHomePresence(){
   const active=s?.active||[];
   const other=active.find(p=>p!==state.persona);
   const progress=Number(s?.position_seconds||0);
-  $("watchTogetherText").textContent=other?"Join "+other:
-    progress>30?"Continue watching":"Watch together";
+  $("watchTogetherText").textContent="Play movie";
   $("homePresence").textContent=other?other+" is watching now.":"";
 }
 function updatePresence(names){
@@ -393,8 +395,13 @@ function updatePresence(names){
 }
 async function showHome({release=true}={}){
   if(release && state.room)await leaveCinema();
+  if(release){
+    try{sessionStorage.removeItem("cinema-solo-path");}catch(_){}
+  }
+  state.mode="solo";
+  try{sessionStorage.setItem("cinema-intent","solo");}catch(_){}
   show("homeView");
-  await Promise.all([refreshMovies(),readStatus().catch(err=>inform(err.message))]);
+  await refreshMovies();
 }
 function choosePersona(persona){
   if(!["Kittu","Subbu"].includes(persona))return;
@@ -452,7 +459,7 @@ async function submitPin(event){
     $("pinInput").value="";
     $("pinStage").hidden=true;
     $("profilePicker").hidden=false;
-    await showHome({release:false});
+    showExperienceChooser();
   }catch(err){
     $("entryMessage").textContent=err?.message||"Couldn't sign in.";
   }finally{
@@ -463,57 +470,281 @@ async function submitPin(event){
 }
 async function switchProfile(){
   if(state.room)await leaveCinema();
+  if(state.mode==="together")await leaveLobby(true);
   const {error}=await db.auth.signOut();
   if(error){inform(error.message);return;}
   state.user=null;state.persona=null;state.selectedPersona=null;state.status=null;
+  state.mode=null;state.lobby=null;
+  try{sessionStorage.removeItem("cinema-intent");sessionStorage.removeItem("cinema-solo-path");}catch(_){} 
   $("pinInput").value="";
   $("pinStage").hidden=true;
   $("profilePicker").hidden=false;
   show("loginView");$("entryMessage").textContent="";
 }
+
+function showExperienceChooser(){
+  state.mode=null;
+  state.lobby=null;
+  state.lobbyRenderKey="";
+  try{
+    sessionStorage.removeItem("cinema-intent");
+    sessionStorage.removeItem("cinema-solo-path");
+    sessionStorage.removeItem("cinema-open-watch");
+  }catch(_){}
+  $("modeGreeting").textContent="Hi "+(state.persona||"there")+" — what are we watching tonight?";
+  show("modeView");
+}
+async function returnToChoices(){
+  if(state.room)await leaveCinema();
+  if(state.mode==="together")await leaveLobby(true);
+  showExperienceChooser();
+}
+function soloSaveKey(path=state.room?.library_path){
+  return "cinema-solo-progress-"+(state.persona||"guest")+"-"+encodeURIComponent(path||"");
+}
+function storeSoloProgress(force=false){
+  if(state.mode!=="solo"||!state.room?.library_path)return;
+  if(!force && Date.now()-state.soloLastSaved<5000)return;
+  state.soloLastSaved=Date.now();
+  try{
+    localStorage.setItem(soloSaveKey(),JSON.stringify({
+      path:state.room.library_path,
+      position:player.readyState>=1?player.currentTime:
+        Number(state.room.position_seconds||0)
+    }));
+  }catch(_){}
+}
+async function startSolo(movie){
+  if(!movie?.path)return;
+  if(state.room)await leaveCinema();
+  state.mode="solo";
+  state.sourcePath=null;
+  state.revision=-1;
+  state.soloLastSaved=0;
+  let startingAt=0;
+  try{
+    const progress=JSON.parse(localStorage.getItem(soloSaveKey(movie.path))||"null");
+    if(progress?.path===movie.path && Number.isFinite(Number(progress.position)))
+      startingAt=Math.max(0,Number(progress.position));
+    sessionStorage.setItem("cinema-intent","solo");
+    sessionStorage.setItem("cinema-solo-path",movie.path);
+  }catch(_){}
+  state.room={
+    id:"solo",library_path:movie.path,position_seconds:startingAt,
+    is_playing:false,revision:0,playback_updated_at:new Date().toISOString()
+  };
+  show("watchView");
+  $("backHomeBtn").textContent="← Movies";
+  $("playingTitle").textContent=movie.title;
+  $("playerNote").hidden=true;
+  updatePlayerIndicators();
+  await applyRoom({...state.room});
+}
+
+
+let lobbyQueue=Promise.resolve();
+async function callLobby(action="status",movie=null){
+  const request=async()=>{
+    const {data,error}=await db.rpc("cinema_lobby_action",{
+      p_action:action,p_movie:movie
+    });
+    if(error)throw error;
+    return data;
+  };
+  const task=lobbyQueue.then(request,request);
+  lobbyQueue=task.catch(()=>{});
+  return task;
+}
+function findLobbyMovie(path){
+  return state.movies.find(m=>m.path===path)||
+    (path?{path,title:fileTitle(path),size:0,mkv:isMkv(path)}:null);
+}
+function renderLobby(){
+  const lobby=state.lobby;
+  if(!lobby||state.mode!=="together")return;
+  const partner=state.persona==="Kittu"?"Subbu":"Kittu";
+  const together=!!lobby.kittu_here&&!!lobby.subbu_here;
+  $("lobbyKittu").classList.toggle("present",!!lobby.kittu_here);
+  $("lobbySubbu").classList.toggle("present",!!lobby.subbu_here);
+  $("lobbyKittuStatus").textContent=lobby.kittu_here?"Here with you":"Not here yet";
+  $("lobbySubbuStatus").textContent=lobby.subbu_here?"Here with you":"Not here yet";
+  if(!together){
+    $("lobbyTitle").textContent="Waiting for "+partner+"…";
+    $("lobbyHint").textContent="You're here. When "+partner+
+      " joins, you'll each suggest a film and decide together.";
+  }else if(lobby.phase==="watching"){
+    $("lobbyTitle").textContent="It's a movie night ♥";
+    $("lobbyHint").textContent="You both chose the same film. Opening your cinema…";
+  }else{
+    $("lobbyTitle").textContent="You're both here ♥";
+    $("lobbyHint").textContent="Each pick a movie, then agree on your final choice.";
+  }
+  $("lobbyRecommendSection").hidden=!together||lobby.phase==="watching";
+  $("lobbyVotingSection").hidden=!together||lobby.phase==="watching"||
+    !lobby.kittu_pick||!lobby.subbu_pick;
+  const yourPick=state.persona==="Kittu"?lobby.kittu_pick:lobby.subbu_pick;
+  const yourVote=state.persona==="Kittu"?lobby.kittu_vote:lobby.subbu_vote;
+  const theirVote=state.persona==="Kittu"?lobby.subbu_vote:lobby.kittu_vote;
+  $("lobbyYourPick").textContent=yourPick
+    ?"Your recommendation: "+(findLobbyMovie(yourPick)?.title||yourPick)+". Tap another poster to change it."
+    :"Choose a film you'd love to watch.";
+  if(!together||lobby.phase==="watching")return;
+  const key=JSON.stringify({
+    k:lobby.kittu_pick,s:lobby.subbu_pick,kv:lobby.kittu_vote,
+    sv:lobby.subbu_vote,me:state.persona,paths:state.movies.map(m=>m.path)
+  });
+  if(state.lobbyRenderKey===key)return;
+  state.lobbyRenderKey=key;
+  const grid=$("lobbyMovieGrid");
+  grid.replaceChildren();
+  for(const movie of state.movies){
+    const card=document.createElement("button");
+    card.type="button";card.className="movie-card";
+    if(yourPick===movie.path)card.classList.add("selected");
+    card.setAttribute("aria-pressed",String(yourPick===movie.path));
+    card.setAttribute("aria-label","Recommend "+movie.title);
+    const cover=document.createElement("span");cover.className="movie-card-cover";
+    cover.append(makeMovieImage(movie));
+    const title=document.createElement("span");title.className="movie-title";
+    title.textContent=movie.title;
+    card.append(cover,title);
+    card.addEventListener("click",()=>chooseLobbyMovie("propose",movie.path));
+    grid.append(card);
+  }
+  const opts=$("lobbyVoteOptions");
+  opts.replaceChildren();
+  if(lobby.kittu_pick&&lobby.subbu_pick){
+    const options=[...new Set([lobby.kittu_pick,lobby.subbu_pick])];
+    for(const path of options){
+      const movie=findLobbyMovie(path);
+      const card=document.createElement("button");
+      card.type="button";card.className="lobby-vote-card";
+      if(yourVote===path)card.classList.add("chosen");
+      card.setAttribute("aria-pressed",String(yourVote===path));
+      const img=makeMovieImage(movie);
+      img.alt="";img.loading="lazy";
+      const detail=document.createElement("span");detail.className="lobby-vote-card-info";
+      const title=document.createElement("strong");title.textContent=movie.title;
+      const nominated=document.createElement("small");
+      nominated.textContent=(lobby.kittu_pick===path&&lobby.subbu_pick===path)
+        ?"Recommended by both":lobby.kittu_pick===path?"Kittu's pick":"Subbu's pick";
+      const votes=document.createElement("small");
+      votes.textContent="Votes: "+(lobby.kittu_vote===path?"Kittu ✓ ":"")+
+        (lobby.subbu_vote===path?"Subbu ✓":"");
+      detail.append(title,nominated,votes);
+      card.append(img,detail);
+      card.addEventListener("click",()=>chooseLobbyMovie("vote",path));
+      opts.append(card);
+    }
+  }
+  $("lobbyVoteNotice").textContent=yourVote&&theirVote&&yourVote!==theirVote
+    ?"Different choices! Pick the same film to begin."
+    :yourVote&&!theirVote?"Your choice is in. Waiting for "+partner+" to agree…"
+    :!yourVote&&theirVote?partner+" has voted. Your turn!"
+    :!lobby.kittu_pick||!lobby.subbu_pick?"Waiting for both recommendations."
+    :"Both recommendations are in. Choose the one you'd like to watch.";
+}
+async function receiveLobby(data){
+  if(state.mode!=="together")return;
+  state.lobby=data;
+  renderLobby();
+  if(data?.phase==="watching"&&data?.joined&&
+     !$("lobbyView").hidden&&!state.joining){
+    await enterCinema();
+  }else if(data?.phase!=="watching"&&!$("watchView").hidden&&state.room){
+    await leaveCinema();
+    show("lobbyView");
+    renderLobby();
+    inform("Your partner left the screening. Waiting in the lobby.");
+  }
+}
+async function enterLobby(){
+  if(state.lobbyEntering)return;
+  state.lobbyEntering=true;
+  state.mode="together";
+  try{sessionStorage.setItem("cinema-intent","together");}catch(_){}
+  show("lobbyView");
+  $("lobbyTitle").textContent="Opening your movie-night lobby…";
+  try{
+    await refreshMovies();
+    await receiveLobby(await callLobby("join"));
+  }catch(err){
+    inform(err?.message||"Unable to join the lobby.");
+    showExperienceChooser();
+  }finally{state.lobbyEntering=false;}
+}
+async function chooseLobbyMovie(action,path){
+  if(state.mode!=="together"||$("lobbyView").hidden)return;
+  try{
+    await receiveLobby(await callLobby(action,path));
+  }catch(err){inform(err?.message||"Couldn't update your choice.");}
+}
+async function leaveLobby(silent=false){
+  if(state.lobby?.joined){
+    try{await callLobby("leave");}
+    catch(err){if(!silent)inform(err?.message||"Couldn't leave the lobby.");}
+  }
+  state.lobby=null;
+  state.lobbyRenderKey="";
+}
+async function pollLobby(heartbeat=false){
+  if(state.mode!=="together"||state.lobbyPolling||state.joining||
+    ($("watchView").hidden && $("lobbyView").hidden))return;
+  state.lobbyPolling=true;
+  try{
+    const data=await callLobby(heartbeat?"heartbeat":"status");
+    if(!data?.joined && !$("lobbyView").hidden){
+      await receiveLobby(await callLobby("join"));
+    }else if(!data?.joined&&!$("watchView").hidden){
+      await leaveCinema();
+      show("lobbyView");
+      await receiveLobby(await callLobby("join"));
+    }else await receiveLobby(data);
+  }catch(err){
+    console.warn("Movie lobby:",err?.message||err);
+  }finally{state.lobbyPolling=false;}
+}
+
 async function fetchRoom(id){
   const {data,error}=await db.from("watch_rooms").select("*").eq("id",id).single();
   if(error)throw error;
   return data;
 }
-async function enterCinema(desiredMovie=null){
-  if(state.joining)return;
+
+async function enterCinema(){
+  if(state.mode!=="together"||state.joining)return;
   state.joining=true;
-  const btn=$("watchTogetherBtn");
-  btn.disabled=true;
   try{
-    const preview=await readStatus();
+    // A private, server-approved selection is required before joining the screen.
+    const lobby=await callLobby("status");
+    if(!lobby?.joined||lobby.phase!=="watching"||!lobby.selected_path)
+      throw Error("Both of you must agree on a movie first.");
+    state.lobby=lobby;
     const {data:id,error}=await db.rpc("enter_shared_cinema");
     if(error)throw error;
-    state.room=await fetchRoom(id);
-    state.revision=-1;state.sourcePath=null;
+    const room=await fetchRoom(id);
+    if(room.library_path!==lobby.selected_path)
+      throw Error("The selected film changed. Return to the lobby.");
+    state.room=room;state.revision=-1;state.sourcePath=null;
     try{sessionStorage.setItem("cinema-open-watch","1");}catch(_){}
     show("watchView");
+    $("backHomeBtn").textContent="← Leave screening";
     updatePlayerIndicators();
-    $("connectionText").textContent="Connecting…";
-    $("connectionState").classList.remove("connected");
     await refreshMovies();
-    const current=state.room.library_path;
-    const chosen=desiredMovie||state.movies.find(m=>m.path===current)||state.movies[0];
-    const someoneElse=(preview.active||[]).some(p=>p!==state.persona);
-    if(chosen && current!==chosen.path && !someoneElse){
-      await updateSharedPlayback(chosen.path,0,false);
-    }else if(chosen && !current){
-      await updateSharedPlayback(chosen.path,0,false);
-    }
-    await applyRoom(state.room);
+    await applyRoom({...room});
     setChatOpen(false);
     await loadChatHistory(id);
     await subscribeCinema(id);
     await loadNewChat(id);
-    await readStatus().catch(()=>{});
   }catch(err){
     inform(err?.message||"Couldn't open the cinema.");
     if(state.room)await leaveCinema();
-    show("homeView");
-  }finally{state.joining=false;btn.disabled=state.movies.length===0;}
+    show("lobbyView");
+    renderLobby();
+  }finally{state.joining=false;}
 }
 async function leaveCinema(){
+  if(state.mode==="solo")storeSoloProgress(true);
   resetPlayerControls();
   try{sessionStorage.removeItem("cinema-open-watch");}catch(_){}
   setChatOpen(false);
@@ -527,7 +758,7 @@ async function leaveCinema(){
   player.pause();player.removeAttribute("src");player.load();
   state.sourcePath=null;state.revision=-1;state.room=null;
   $("localPlayBtn").hidden=true;$("loadingVideo").hidden=true;
-  if(wasThere){
+  if(wasThere && state.mode==="together"){
     const {error}=await db.rpc("leave_shared_cinema");
     if(error)console.warn("Could not release seat:",error.message);
   }
@@ -535,6 +766,16 @@ async function leaveCinema(){
 async function updateSharedPlayback(path,seconds,playing){
   if(!state.room)return;
   const secondsSafe=Math.max(0,Math.min(864000,Number(seconds)||0));
+  if(state.mode==="solo"){
+    const updated={...state.room,library_path:path,
+      position_seconds:secondsSafe,is_playing:!!playing,
+      playback_updated_at:new Date().toISOString(),
+      revision:state.room.revision+1};
+    if(updated.library_path!==state.room.library_path)state.sourcePath=null;
+    await applyRoom(updated);
+    storeSoloProgress(true);
+    return;
+  }
   const roomId=state.room.id;
   const {error}=await db.rpc("control_watch_library",{
     p_room_id:roomId,p_object_path:path,p_position:secondsSafe,p_is_playing:Boolean(playing)
@@ -546,6 +787,7 @@ async function updateSharedPlayback(path,seconds,playing){
 }
 async function selectMovie(movie){
   if(!state.room)return;
+  if(state.mode==="solo"){await startSolo(movie);return;}
   if(state.room.library_path===movie.path)return;
   if(state.room.is_playing && !window.confirm("Change the movie for both of you?"))return;
   await updateSharedPlayback(movie.path,0,false);
@@ -798,6 +1040,13 @@ async function sendChatMessage(event){
 }
 async function skipSeconds(delta){
   if(state.skipBusy||!state.room?.library_path)return;
+  if(state.mode==="solo"){
+    const at=player.readyState>=1?player.currentTime:wantedPosition(state.room);
+    const limit=Number.isFinite(player.duration)&&player.duration>0?player.duration:864000;
+    const next=Math.max(0,Math.min(limit,at+delta));
+    await updateSharedPlayback(state.room.library_path,next,state.room.is_playing);
+    return;
+  }
   const roomId=state.room.id;
   state.skipBusy=true;
   $("skipBackBtn").disabled=true;
@@ -821,7 +1070,7 @@ async function skipSeconds(delta){
 }
 
 async function keepWatching(){
-  if(!state.room||state.heartbeat)return;
+  if(state.mode!=="together"||!state.room||state.heartbeat)return;
   state.heartbeat=true;
   try{
     const {data:alive,error}=await db.rpc("keep_watch_seat",{p_room_id:state.room.id});
@@ -831,7 +1080,9 @@ async function keepWatching(){
     }
   }catch(err){
     inform(err?.message||"Connection lost. Rejoin to keep watching.");
-    await showHome();
+    if(state.room)await leaveCinema();
+    show("lobbyView");
+    renderLobby();
   }finally{state.heartbeat=false;}
 }
 async function updatePresenceFromStatus(){
@@ -848,8 +1099,19 @@ function bindEvents(){
     $("entryMessage").textContent="";
   });
   $("switchProfileBtn").addEventListener("click",switchProfile);
-  $("watchTogetherBtn").addEventListener("click",()=>enterCinema(state.movies[0]||null));
-  $("backHomeBtn").addEventListener("click",()=>showHome().catch(err=>inform(err.message)));
+  $("soloModeBtn").addEventListener("click",()=>showHome().catch(err=>inform(err.message)));
+  $("togetherModeBtn").addEventListener("click",()=>enterLobby().catch(err=>inform(err.message)));
+  $("soloBackBtn").addEventListener("click",()=>returnToChoices().catch(err=>inform(err.message)));
+  $("leaveLobbyBtn").addEventListener("click",()=>returnToChoices().catch(err=>inform(err.message)));
+  $("watchTogetherBtn").addEventListener("click",()=>{
+    if(state.movies[0])startSolo(state.movies[0]).catch(err=>inform(err.message));
+  });
+  $("backHomeBtn").addEventListener("click",async()=>{
+    try{
+      if(state.mode==="solo")await showHome();
+      else await returnToChoices();
+    }catch(err){inform(err?.message||"Couldn't leave screening.");}
+  });
   $("refreshLibraryBtn").addEventListener("click",refreshMovies);
   $("refreshWatchBtn").addEventListener("click",refreshMovies);
   $("chatToggleBtn").addEventListener("click",()=>{
@@ -996,9 +1258,15 @@ function bindEvents(){
   player.addEventListener("webkitbeginfullscreen",updatePlayerIndicators);
   player.addEventListener("webkitendfullscreen",updatePlayerIndicators);
   player.addEventListener("play",refreshPlayerControls);
-  player.addEventListener("pause",refreshPlayerControls);
+  player.addEventListener("pause",()=>{
+    refreshPlayerControls();
+    storeSoloProgress(true);
+  });
   player.addEventListener("seeking",refreshPlayerControls);
-  player.addEventListener("timeupdate",updateClock);
+  player.addEventListener("timeupdate",()=>{
+    updateClock();
+    storeSoloProgress();
+  });
   player.addEventListener("loadedmetadata",()=>{$("loadingVideo").hidden=true;syncPlayback();refreshPlayerControls();});
   player.addEventListener("canplay",()=>{$("loadingVideo").hidden=true;refreshPlayerControls();});
   player.addEventListener("waiting",()=>{if(state.room?.is_playing){$("loadingVideo").hidden=false;refreshPlayerControls();}});
@@ -1015,31 +1283,39 @@ function bindEvents(){
   });
   player.addEventListener("ended",()=>{
     refreshPlayerControls();
+    storeSoloProgress(true);
     if(state.room?.library_path && state.room.is_playing)
       updateSharedPlayback(state.room.library_path,player.duration||0,false).catch(console.error);
   });
   setInterval(()=>{
-    if(!$("watchView").hidden)keepWatching();
-  },25000);
+    if(!$("watchView").hidden&&state.mode==="together")keepWatching();
+    if(state.mode==="together"&&(!$("lobbyView").hidden||!$("watchView").hidden))
+      pollLobby(true).catch(console.warn);
+  },20000);
   setInterval(()=>{
-    if(!$("watchView").hidden && state.room)
+    if(state.mode==="together"&&(!$("lobbyView").hidden||!$("watchView").hidden))
+      pollLobby(false).catch(console.warn);
+  },4000);
+  setInterval(()=>{
+    if(state.mode==="together"&&!$("watchView").hidden && state.room)
       loadNewChat(state.room.id).catch(err=>console.warn("Chat reconnect:",err));
   },6000);
   setInterval(async()=>{
-    if(!$("watchView").hidden && state.room){
+    if(state.mode==="together"&&!$("watchView").hidden && state.room){
       try{
         const room=await fetchRoom(state.room.id);
         if(state.room?.id===room.id)await applyRoom(room);
         if(player.readyState>=1 && state.room?.is_playing &&
           Math.abs(player.currentTime-wantedPosition(state.room))>3)syncPlayback();
       }catch(err){console.warn("Cinema check:",err);}
-    }else if(!$("homeView").hidden && state.user){
-      updatePresenceFromStatus();
     }
   },7000);
   document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible"&&!$("watchView").hidden)
-      keepWatching().catch(console.error);
+    if(document.visibilityState==="visible"&&state.mode==="together"){
+      if(!$("watchView").hidden)keepWatching().catch(console.error);
+      pollLobby(true).catch(console.error);
+    }
+    if(document.visibilityState==="hidden")storeSoloProgress(true);
   });
   db.auth.onAuthStateChange(event=>{
     if(event==="SIGNED_OUT" && state.user){
@@ -1057,21 +1333,25 @@ async function boot(){
     .select("persona").eq("user_id",user.id).maybeSingle();
   if(aliasError)console.warn(aliasError.message);
   if(!alias?.persona){show("loginView");return;}
-  // Existing unverified guest identities must enter their PIN once.
   const {error:verificationError}=await db.rpc("get_cinema_status");
   if(verificationError){show("loginView");return;}
   state.user=user;state.persona=alias.persona;
-  // Refreshing mid-movie returns to the same private cinema, not profile selection.
-  let restoreWatch=false;
-  try{restoreWatch=sessionStorage.getItem("cinema-open-watch")==="1";}catch(_){}
-  if(restoreWatch){
-    await refreshMovies();
-    await enterCinema();
-    if(state.room)return;
-  }
-  await showHome({release:false});
+  let intent="",soloPath="";
+  try{
+    intent=sessionStorage.getItem("cinema-intent")||"";
+    soloPath=sessionStorage.getItem("cinema-solo-path")||"";
+  }catch(_){}
+  if(intent==="together"){
+    await enterLobby();
+  }else if(intent==="solo"){
+    await showHome({release:false});
+    const movie=state.movies.find(m=>m.path===soloPath);
+    if(movie)await startSolo(movie);
+  }else showExperienceChooser();
 }
 boot().catch(err=>{
+  console.warn("Cinema startup:",err);
   inform(err?.message||"Something went wrong.");
-  show("loginView");
+  if(state.user)showExperienceChooser();
+  else show("loginView");
 });

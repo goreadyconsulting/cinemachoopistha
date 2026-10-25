@@ -1,16 +1,17 @@
 # Cinema Choopistha
 
-A simple streaming room for two people, powered by Supabase and hosted on GitHub Pages.
+A private streaming place with independent solo playback and a shared, mutually agreed movie-night room, powered by Supabase and hosted on GitHub Pages.
 
 **Website:** https://goreadyconsulting.github.io/cinemachoopistha/
 
 ## Enter
 
-1. Choose **Kittu** or **Subbu**.
-2. Enter that profile's private four-digit PIN.
-3. Browse the films in the **Movies** shelf and choose **Watch Together**.
-4. Both people join the same persistent room. Play, pause, seek, and the **−10s / +10s** buttons are synchronized.
-5. Open **Chat** beside the player to message each other while watching. On phones and tablets, Chat opens as a closeable bottom sheet.
+1. Sign in as Kittu or Subbu using the profile PIN.
+2. Choose **Watch individually** or **Wait for partner**.
+3. Solo: browse and play a film privately. Every play/pause, seek and 10-second skip is local, and per-film progress is saved in browser storage under the selected profile.
+4. Together: the first profile waits in a private lobby. Once both are present, each suggests a movie. Both vote; only matching votes open the selected film in the shared synchronized player.
+5. The final screen shows only the chosen film, a minimal title and floating video controls. Movie recommendations and the film shelf stay hidden; chat starts collapsed.
+6. After refreshing, a verified session restores the current experience in the same browser tab. Leaving Together returns you to the two-experience choice.
 
 **PINs are not in this repository.** They are verified on the Supabase server against bcrypt hashes stored in the non-exposed \`private.watch_pin_codes\` table. Repeated incorrect attempts are temporarily blocked per anonymous session. The previous guest-label-only login function is disabled, and room/database/storage read operations require a PIN-verified session.
 
@@ -32,7 +33,7 @@ WebVTT subtitle sidecar files may be uploaded with the same base filename and a 
 
 - No visible branding header, profile selection followed by a compact PIN form
 - One film feature, one real movie shelf, no placeholder movie categories
-- One shared room; no invite codes, manual room creation, or upload UI
+- One shared approved-movie room and an independent solo mode; no invite codes or upload UI
 - Responsive theatre, native fullscreen, optional picture-in-picture, subtitles, loading indicators
 - Music-player-style previous / play-pause / next icons with no visible numeric labels; previous/next still skip exactly 10 seconds for both viewers, including while paused
 - Private two-person live chat with a compact, collapsible bottom-right chat window on all devices
@@ -106,3 +107,21 @@ Playback controls auto-hide after approximately three seconds of inactivity even
 if a mouse pointer is stationary over the control bar. They remain visible during
 a held click/touch, timeline scrubbing, keyboard interaction, buffering, and
 paused playback. Moving the mouse or tapping the player restores the overlay.
+
+## Two-person movie-night lobby
+
+The backend public.cinema_lobby_action function handles join, status, heartbeat,
+propose, vote, and leave. The server checks the PIN-verified profile and uses a
+locked private singleton Postgres row for atomic, mutually approved decisions.
+The lobby table lives in the private schema with RLS and no direct client read.
+Only one active device can occupy each profile's lobby seat.
+
+Stale seats expire after 80 seconds. The frontend polls status every four seconds
+and sends heartbeats every 20 seconds. The agreed title is written once to the
+existing shared watch room, paused at the beginning. Realtime playback continues
+to use the existing verified shared-room permissions.
+
+Solo playback never invokes shared-room playback or skip RPCs. Local solo resume
+positions are stored per film and per profile in the current browser, not synced
+between devices. The movie shelf and prominent presence controls remain hidden
+while a screening is active.

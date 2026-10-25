@@ -64,19 +64,90 @@
     </section>
   </main>
 
+
+  <main id="modeView" class="mode-view" hidden>
+    <div class="mode-content">
+      <div class="mode-intro">
+        <span class="mode-heart" aria-hidden="true">♥</span>
+        <p class="eyebrow">Your private cinema</p>
+        <h1>How shall we watch?</h1>
+        <p id="modeGreeting">Your movie night, your way.</p>
+      </div>
+      <div class="mode-cards">
+        <button id="soloModeBtn" type="button" class="mode-card solo-choice">
+          <span class="mode-icon" aria-hidden="true">
+            <svg viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5" y="6" width="22" height="20" rx="5"/><path d="m14 12 8 4-8 4z" fill="currentColor" stroke="none"/></svg>
+          </span>
+          <strong>Watch individually</strong>
+          <span>Just you, your picks, and your own playback.</span>
+          <small>Browse your movies <span aria-hidden="true">→</span></small>
+        </button>
+        <button id="togetherModeBtn" type="button" class="mode-card together-choice">
+          <span class="mode-icon mode-icon-heart" aria-hidden="true">♥</span>
+          <strong>Wait for partner</strong>
+          <span>Meet in the lobby, choose a film together, and start when you both agree.</span>
+          <small>Plan movie night <span aria-hidden="true">→</span></small>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <main id="lobbyView" class="lobby-view" hidden>
+    <div class="lobby-shell">
+      <button id="leaveLobbyBtn" type="button" class="back-button lobby-back">← Back to choices</button>
+      <section class="lobby-hero">
+        <div class="lobby-heart" aria-hidden="true">♥</div>
+        <p class="eyebrow">Together is better</p>
+        <h1 id="lobbyTitle">Waiting for your person…</h1>
+        <p id="lobbyHint">Once you are both here, each of you can suggest a movie.</p>
+        <div class="lobby-people">
+          <div id="lobbyKittu" class="lobby-person">
+            <span class="lobby-avatar lobby-avatar-k">K</span>
+            <strong>Kittu</strong>
+            <small id="lobbyKittuStatus">Not here yet</small>
+          </div>
+          <span class="lobby-join-symbol" aria-hidden="true">♥</span>
+          <div id="lobbySubbu" class="lobby-person">
+            <span class="lobby-avatar lobby-avatar-s">S</span>
+            <strong>Subbu</strong>
+            <small id="lobbySubbuStatus">Not here yet</small>
+          </div>
+        </div>
+      </section>
+      <section id="lobbyRecommendSection" class="lobby-recommend" hidden>
+        <div class="lobby-heading">
+          <p class="eyebrow">Step one</p>
+          <h2>Recommend a movie</h2>
+          <p id="lobbyYourPick">Pick one movie you'd love to watch.</p>
+        </div>
+        <div id="lobbyMovieGrid" class="movie-grid lobby-film-grid"></div>
+      </section>
+      <section id="lobbyVotingSection" class="lobby-voting" hidden>
+        <div class="lobby-heading">
+          <p class="eyebrow">Step two</p>
+          <h2>Decide together</h2>
+          <p>Both choose the same movie to start your private screening.</p>
+        </div>
+        <div id="lobbyVoteOptions" class="lobby-vote-grid"></div>
+        <p id="lobbyVoteNotice" class="lobby-vote-notice" role="status" aria-live="polite"></p>
+      </section>
+    </div>
+  </main>
+
   <main id="homeView" class="home-view" hidden>
+    <div class="solo-top"><button id="soloBackBtn" class="back-button" type="button">← Choose experience</button><span class="solo-flag">Solo screening</span></div>
     <section class="feature" aria-label="Featured movie">
       <div class="feature-backdrop" id="featureBackdrop" aria-hidden="true"></div>
       <div class="feature-scrim" aria-hidden="true"></div>
       <div class="feature-inner">
         <div class="feature-copy">
-          <p class="eyebrow">Tonight's pick</p>
+          <p class="eyebrow">Your pick</p>
           <h1 id="featureTitle">Our next movie night</h1>
           <div class="feature-meta" id="featureMeta">Just the two of us</div>
           <p id="featureDescription" class="feature-description">A good film is better together.</p>
           <div class="feature-actions">
             <button id="watchTogetherBtn" class="primary-button" type="button">
-              <span class="play-triangle" aria-hidden="true">▶</span><span id="watchTogetherText">Watch together</span>
+              <span class="play-triangle" aria-hidden="true">▶</span><span id="watchTogetherText">Play movie</span>
             </button>
           </div>
           <p class="inline-presence" id="homePresence" aria-live="polite"></p>
@@ -102,8 +173,8 @@
   <main id="watchView" class="watch-view" hidden>
     <div class="watch-shell">
       <div class="watch-top">
-        <button type="button" id="backHomeBtn" class="back-button" aria-label="Back to movies"><span aria-hidden="true">←</span> Movies</button>
-        <div class="watch-together-top">
+        <button type="button" id="backHomeBtn" class="back-button" aria-label="Leave screening"><span aria-hidden="true">←</span> Leave screening</button>
+        <div class="watch-together-top" hidden>
           <div id="presenceKittu" class="presence-profile"><span class="presence-circle">K</span><span>Kittu</span></div>
           <div id="presenceSubbu" class="presence-profile"><span class="presence-circle">S</span><span>Subbu</span></div>
         </div>
@@ -162,9 +233,9 @@
           <h1 id="playingTitle">Our cinema</h1>
           <p id="playerNote" class="player-note" hidden></p>
         </div>
-        <p class="connection-state" id="connectionState"><span class="connection-dot"></span><span id="connectionText">Connecting…</span></p>
+        <p class="connection-state" id="connectionState" hidden><span class="connection-dot"></span><span id="connectionText">Connecting…</span></p>
       </div>
-      <div class="up-next">
+      <div class="up-next" hidden>
         <div class="up-next-title"><h2>Movies</h2><button class="quiet-button" id="refreshWatchBtn" type="button" title="Refresh movies" aria-label="Refresh movies">↻</button></div>
         <div class="up-next-grid" id="watchMovieGrid"></div>
       </div>
