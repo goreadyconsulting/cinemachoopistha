@@ -1,13 +1,13 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0/+esm";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
-import * as tus from "https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/+esm";
+
 
 const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
-const STORAGE_UPLOAD_ENDPOINT = "https://pqnuknmxstemsjxhpmau.storage.supabase.co/storage/v1/upload/resumable";
-let uploadInProgress = false;
+const LIBRARY_BUCKET = "cinema-library";
+let chosenPersona = null;
+let dashboardMovieData = [];
 const $ = (id) => document.getElementById(id);
-const state = { user: null, room: null, videos: [], channel: null, sourceVideoId: null, applyToken: 0, scrubbing: false, lastAppliedRevision: -1 };
+const state = { user: null, persona: null, room: null, videos: [], channel: null, sourceVideoId: null, applyToken: 0, scrubbing: false, lastAppliedRevision: -1 };
 let toastTimer = null;
 const player = $("player");
 
@@ -17,8 +17,8 @@ function notify(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4500);
 }
-function displayName(user) {
-  return user?.user_metadata?.display_name || user?.user_metadata?.user_name || "Guest";
+function displayName() {
+  return state.persona || "Guest";
 }
 function avatarUrl(user) { return user?.user_metadata?.avatar_url || ""; }
 function show(view) {
@@ -53,33 +53,61 @@ function safeAvatar(img, url, name) {
 }
 function routeRoom(id) { history.replaceState({}, "", location.pathname + "?room=" + encodeURIComponent(id)); }
 function clearRoute() { history.replaceState({}, "", location.pathname); }
+function selectPersona(persona) {
+  if (!["Kittu","Subbu"].includes(persona)) return;
+  chosenPersona = persona;
+  $("chooseKittu").setAttribute("aria-pressed", String(persona === "Kittu"));
+  $("chooseSubbu").setAttribute("aria-pressed", String(persona === "Subbu"));
+  $("heroLoginBtn").disabled = false;
+  $("heroLoginBtn").textContent = "Continue as " + persona + " ↗";
+}
+async function fetchPersona(userId) {
+  const { data, error } = await db.from("watch_aliases")
+    .select("persona").eq("user_id",userId).maybeSingle();
+  if (error) throw error;
+  return data?.persona || null;
+}
 async function signIn() {
+  if (!chosenPersona) return notify("Select Kittu or Subbu first.");
   const button = $("heroLoginBtn");
   if (button.disabled) return;
-  setBusy(button, true, "Entering…");
+  setBusy(button,true,"Entering…");
   try {
-    const requested = $("guestName").value.trim().slice(0, 28);
-    const name = requested || "Guest " + Math.floor(1000 + Math.random() * 9000);
-    const { data, error } = await db.auth.signInAnonymously({ options: { data: { display_name: name } } });
-    if (error) throw error;
-    state.user = data.user;
-    $("userName").textContent = displayName(data.user);
-    safeAvatar($("userAvatar"), avatarUrl(data.user), displayName(data.user));
+    let { data: { user } } = await db.auth.getUser();
+    if (!user) {
+      const { data, error } = await db.auth.signInAnonymously();
+      if (error) throw error;
+      user = data.user;
+    }
+    const { data: persona, error: claimError } =
+      await db.rpc("claim_watch_alias",{p_persona:chosenPersona});
+    if (claimError) throw claimError;
+    state.user = user;
+    state.persona = persona;
+    $("userName").textContent = displayName();
+    safeAvatar($("userAvatar"),avatarUrl(user),displayName());
     const params = new URLSearchParams(location.search);
     if (params.has("join")) await joinByCode(params.get("join"));
     else if (params.has("room")) await openRoom(params.get("room"));
     else await dashboard();
-  } catch (err) {
+  } catch(err) {
     console.error(err);
-    notify("Guest entry failed: " + (err.message || "Unknown error") + ". Enable Anonymous Sign-ins in Supabase Authentication → Providers.");
-  } finally { setBusy(button, false); }
+    notify(err.message || "Could not enter. Enable Anonymous Sign-ins in Supabase.");
+  } finally {
+    setBusy(button,false);
+  }
 }
 async function signOut() {
-  if (state.room) await db.rpc("leave_watch_room", { p_room_id: state.room.id });
+  if (state.room) await db.rpc("leave_watch_room",{p_room_id:state.room.id});
   await leaveRoom();
   const { error } = await db.auth.signOut();
   if (error) { notify(error.message); return; }
-  state.user = null;
+  state.user = null; state.persona = null;
+  chosenPersona = null;
+  $("chooseKittu").setAttribute("aria-pressed","false");
+  $("chooseSubbu").setAttribute("aria-pressed","false");
+  $("heroLoginBtn").disabled = true;
+  $("heroLoginBtn").textContent = "Choose a profile first ↗";
   clearRoute(); show("loginView");
 }
 async function loadMyRooms() {
@@ -108,7 +136,7 @@ async function dashboard() {
   await leaveRoom();
   clearRoute();
   show("dashboardView");
-  await loadMyRooms();
+  await Promise.all([loadMyRooms(),loadLibraryDashboard()]);
 }
 async function leaveSeat() {
   if (!state.room) return;
@@ -197,211 +225,192 @@ async function openRoom(id) {
   await applyPlayback(data);
   await subscribeRoom(id);
 }
+const getSelection = (room) =>
+  room?.library_path ? "library:" + room.library_path : (room?.video_id || null);
+const isSupportedMovie = (name) => /\.(mp4|webm|mkv)$/i.test(name || "");
+const isMatroska = (name) => /\.mkv$/i.test(name || "");
+function movieName(filename) {
+  return (filename || "Untitled").replace(/\.(mp4|webm|mkv)$/i,"")
+    .replace(/[_.-]+/g," ").trim() || "Untitled";
+}
+function formatBytes(value) {
+  const bytes=Number(value)||0;
+  if (bytes>=1024**3) return (bytes/(1024**3)).toFixed(2)+" GB";
+  if (bytes>=1024**2) return (bytes/(1024**2)).toFixed(1)+" MB";
+  return (bytes/1024).toFixed(0)+" KB";
+}
+async function listSharedMovies() {
+  // Read directly from Supabase Storage, not from manually maintained DB rows.
+  const { data, error } = await db.storage.from(LIBRARY_BUCKET)
+    .list("",{limit:100,sortBy:{column:"name",order:"asc"}});
+  if(error) throw error;
+  return (data || []).filter((file)=>file.id && isSupportedMovie(file.name))
+    .map((file)=>({
+      id:"library:"+file.name,
+      object_path:file.name,
+      bucket:LIBRARY_BUCKET,
+      title:movieName(file.name),
+      file_size:Number(file.metadata?.size || 0),
+      mime_type:file.metadata?.mimetype || "",
+      isMkv:isMatroska(file.name),
+      isLibrary:true
+    }));
+}
+async function loadLibraryDashboard() {
+  const root=$("libraryDashboard");
+  try {
+    const movies=await listSharedMovies();
+    dashboardMovieData=movies;
+    root.replaceChildren();
+    if(!movies.length){
+      const empty=document.createElement("div");
+      empty.className="muted-panel";
+      empty.textContent="Your library is empty. Upload a movie in Supabase Storage → cinema-library, then refresh.";
+      root.append(empty);
+      return;
+    }
+    movies.forEach((movie)=>{
+      const card=document.createElement("div");card.className="library-card";
+      const icon=document.createElement("span");icon.className="video-item-icon";icon.textContent="▶";
+      const body=document.createElement("div");
+      const name=document.createElement("strong");name.textContent=movie.title;
+      const meta=document.createElement("small");
+      meta.textContent=(movie.isMkv ? "MKV · conversion recommended" : "Ready for playback")+
+        (movie.file_size ? " · "+formatBytes(movie.file_size) : "");
+      body.append(name,meta);card.append(icon,body);root.append(card);
+    });
+  }catch(error){
+    root.replaceChildren();
+    const p=document.createElement("div");p.className="muted-panel";
+    p.textContent="Couldn't read the Supabase movie library: "+error.message;
+    root.append(p);
+  }
+}
 async function loadVideos() {
-  if (!state.room) return;
-  const roomId = state.room.id;
-  const { data, error } = await db.from("watch_videos").select("*").eq("room_id", roomId).order("created_at", { ascending: false });
-  if (error) { notify(error.message); return; }
-  if (!state.room || state.room.id !== roomId) return;
-  state.videos = data || [];
+  if(!state.room)return;
+  const roomId=state.room.id;
+  const [shared,legacy]=await Promise.allSettled([
+    listSharedMovies(),
+    db.from("watch_videos").select("*").eq("room_id",roomId).order("created_at",{ascending:false})
+  ]);
+  if(state.room?.id!==roomId)return;
+  if(shared.status==="rejected")notify("Movie library unavailable: "+shared.reason.message);
+  if(legacy.status==="fulfilled" && legacy.value.error)notify(legacy.value.error.message);
+  const movies=shared.status==="fulfilled" ? shared.value : [];
+  const old=legacy.status==="fulfilled" ? (legacy.value.data || []).map(video=>({
+    ...video,bucket:"watch-videos",isLibrary:false,isMkv:false
+  })) : [];
+  state.videos=[...movies,...old];
   renderVideos();
 }
 function renderVideos() {
-  const list = $("videosList"); list.replaceChildren();
-  $("videoCount").textContent = String(state.videos.length);
-  if (!state.videos.length) {
-    const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No videos yet. Upload one below."; list.append(empty); return;
+  const list=$("videosList");list.replaceChildren();
+  $("videoCount").textContent=String(state.videos.length);
+  if(!state.videos.length){
+    const p=document.createElement("p");p.className="muted";
+    p.textContent="No movies yet. Upload directly to the cinema-library bucket in Supabase.";
+    list.append(p);return;
   }
-  state.videos.forEach((video) => {
-    const item = document.createElement("button"); item.type = "button";
-    item.className = "video-item" + (state.room?.video_id === video.id ? " selected" : "");
-    const ico = document.createElement("span"); ico.className = "video-item-icon"; ico.textContent = "▶";
-    const body = document.createElement("span"); body.className = "video-item-main";
-    const title = document.createElement("strong"); title.textContent = video.title;
-    const detail = document.createElement("small"); detail.textContent = (video.file_size / (1024 * 1024)).toFixed(1) + " MB";
-    body.append(title,detail);
-    const arrow = document.createElement("span"); arrow.className = "play-small"; arrow.textContent = state.room?.video_id === video.id ? "●" : "↗";
-    item.append(ico,body,arrow);
-    item.addEventListener("click", () => sendControl(video.id, 0, false));
+  state.videos.forEach((video)=>{
+    const item=document.createElement("button");item.type="button";
+    item.className="video-item"+(getSelection(state.room)===video.id?" selected":"");
+    const icon=document.createElement("span");
+    icon.className="video-item-icon";icon.textContent=video.isMkv?"MKV":"▶";
+    const body=document.createElement("span");body.className="video-item-main";
+    const title=document.createElement("strong");title.textContent=video.title;
+    const info=document.createElement("small");
+    info.textContent=(video.isMkv?"MKV · may not play":video.isLibrary?"Shared library":"Earlier upload")+
+      (video.file_size?" · "+formatBytes(video.file_size):"");
+    body.append(title,info);
+    const arrow=document.createElement("span");arrow.className="play-small";
+    arrow.textContent=getSelection(state.room)===video.id?"●":"↗";
+    item.append(icon,body,arrow);
+    item.addEventListener("click",()=>{
+      if(video.isMkv)notify("MKV playback isn't supported in many browsers. For reliable viewing, convert it to an H.264/AAC MP4.");
+      sendControl(video.id,0,false);
+    });
     list.append(item);
   });
 }
-async function uploadVideo(event) {
-  const input = event.target;
-  const file = input.files?.[0];
-  if (!file || !state.room || uploadInProgress) return;
-  input.value = "";
-  const extension = file.name.toLowerCase().endsWith(".webm") ? ".webm" : ".mp4";
-  const type = file.type || (extension === ".webm" ? "video/webm" : "video/mp4");
-  if (!["video/mp4","video/webm"].includes(type) || !/\.(mp4|webm)$/i.test(file.name)) {
-    return notify("Please select a supported MP4 or WebM movie.");
-  }
-  if (file.size > MAX_FILE_BYTES) return notify("Movies are currently limited to 5 GB each.");
-  if (!file.size) return notify("That file is empty.");
-  const roomId = state.room.id;
-  const userId = state.user.id;
-  const uploadId = ["cinema-upload-v1", roomId, userId, file.name, file.size, file.lastModified].join("|");
-  let path = localStorage.getItem(uploadId);
-  if (!path) {
-    path = roomId + "/" + userId + "/" + crypto.randomUUID() + extension;
-    localStorage.setItem(uploadId, path);
-  }
-  input.disabled = true;
-  uploadInProgress = true;
-  $("uploadProgress").hidden = false;
-  $("uploadProgress").value = 0;
-  $("uploadStatus").textContent = "Preparing " + file.name + "…";
-  try {
-    const { data: { session }, error: sessionError } = await db.auth.getSession();
-    if (sessionError || !session) throw new Error("Your guest session expired. Re-enter as a guest.");
-    await new Promise(async (resolve, reject) => {
-      let upload;
-      try {
-        upload = new tus.Upload(file, {
-          endpoint: STORAGE_UPLOAD_ENDPOINT,
-          retryDelays: [0, 3000, 5000, 10000, 20000],
-          chunkSize: 6 * 1024 * 1024,
-          uploadDataDuringCreation: true,
-          removeFingerprintOnSuccess: true,
-          fingerprint: () => Promise.resolve(uploadId),
-          metadata: {
-            bucketName: "watch-videos",
-            objectName: path,
-            contentType: type,
-            cacheControl: "3600"
-          },
-          headers: { authorization: "Bearer " + session.access_token },
-          onBeforeRequest: async (req) => {
-            // Refresh the token if needed on long uploads. The server validates each request.
-            const { data: { session: current }, error } = await db.auth.getSession();
-            if (error || !current) throw new Error("Guest session expired during upload.");
-            req.setHeader("authorization", "Bearer " + current.access_token);
-          },
-          onProgress: (uploaded, total) => {
-            const percent = total ? uploaded / total * 100 : 0;
-            $("uploadProgress").value = Math.min(100, percent);
-            $("uploadStatus").textContent = "Uploading " + file.name + " — " +
-              percent.toFixed(1) + "% (" + formatBytes(uploaded) + " / " + formatBytes(total) + ")";
-          },
-          onSuccess: () => resolve(),
-          onError: (error) => reject(error)
-        });
-        const previous = await upload.findPreviousUploads();
-        if (previous.length) {
-          upload.resumeFromPreviousUpload(previous[0]);
-          $("uploadStatus").textContent = "Resuming " + file.name + "…";
-        }
-        upload.start();
-      } catch (error) { reject(error); }
-    });
-    const title = file.name.replace(/\.[^.]+$/, "").slice(0, 180) || "Untitled video";
-    let { data, error: rowError } = await db.from("watch_videos")
-      .insert({ room_id: roomId, uploaded_by: userId, object_path: path, title, mime_type: type, file_size: file.size })
-      .select("*").single();
-    if (rowError?.code === "23505") {
-      // An earlier upload finished but the browser closed before the metadata was confirmed.
-      ({ data, error: rowError } = await db.from("watch_videos").select("*").eq("object_path", path).eq("room_id", roomId).single());
-    }
-    if (rowError) throw rowError;
-    localStorage.removeItem(uploadId);
-    if (state.room?.id === roomId) {
-      await loadVideos();
-      if (!state.room.video_id) await sendControl(data.id, 0, false);
-    }
-    $("uploadProgress").value = 100;
-    $("uploadStatus").textContent = "Movie uploaded successfully ✓";
-    notify("Movie ready! You can select it from Up next.");
-  } catch (error) {
-    console.error("Resumable upload failed", error);
-    const message = error?.message || String(error);
-    const hint = /413|exceeds|file.?size|too large|entity too large/i.test(message)
-      ? " Increase the Global file size limit to 5 GB in Supabase Storage Settings."
-      : "";
-    $("uploadStatus").textContent = "Upload paused or failed: " + message + hint + " Select the same file to resume.";
-    notify("Upload interrupted." + (hint || " Select the file again to resume."));
-  } finally {
-    uploadInProgress = false;
-    input.disabled = false;
-  }
-}
-function formatBytes(value) {
-  const size = Math.max(0, Number(value) || 0);
-  return size >= 1024 ** 3
-    ? (size / 1024 ** 3).toFixed(2) + " GB"
-    : (size / 1024 ** 2).toFixed(1) + " MB";
-}
-
 async function sendControl(videoId, position, playing) {
   if (!state.room || !videoId) return;
   const id = state.room.id;
   const safePosition = Math.min(864000, Math.max(0, Number(position) || 0));
-  const { error } = await db.rpc("control_watch_room", {
-    p_room_id: id, p_video_id: videoId, p_position: safePosition, p_is_playing: !!playing
-  });
+  const { error } = videoId.startsWith("library:")
+    ? await db.rpc("control_watch_library",{
+      p_room_id:id,p_object_path:videoId.slice(8),p_position:safePosition,p_is_playing:!!playing
+    })
+    : await db.rpc("control_watch_room",{
+      p_room_id:id,p_video_id:videoId,p_position:safePosition,p_is_playing:!!playing
+    });
   if (error) { notify(error.message); return; }
   // Read after write as a fallback if the websocket is slow or reconnecting.
   const { data } = await db.from("watch_rooms").select("*").eq("id", id).single();
   if (data && state.room?.id === id && data.revision >= state.room.revision) await applyPlayback(data);
 }
 async function applyPlayback(incoming) {
-  if (!state.room || incoming.id !== state.room.id) return;
-  if (incoming.revision < state.lastAppliedRevision) return;
-  state.room = incoming;
-  state.lastAppliedRevision = incoming.revision;
-  $("syncStatus").innerHTML = '<span class="dot"></span> In sync';
-  $("playPauseBtn").disabled = !incoming.video_id;
-  $("seekBar").disabled = !incoming.video_id;
+  if(!state.room || incoming.id!==state.room.id)return;
+  if(incoming.revision < state.lastAppliedRevision)return;
+  state.room=incoming;
+  state.lastAppliedRevision=incoming.revision;
+  const selection=getSelection(incoming);
+  $("syncStatus").innerHTML='<span class="dot"></span> In sync';
+  $("playPauseBtn").disabled=!selection;
+  $("seekBar").disabled=!selection;
   renderVideos();
-  if (!incoming.video_id) {
-    $("playerEmpty").hidden = false; player.hidden = true;
-    $("nowPlayingTitle").textContent = "No video selected"; return;
+  if(!selection){
+    player.pause();
+    $("playerEmpty").hidden=false;player.hidden=true;
+    $("nowPlayingTitle").textContent="No video selected";
+    return;
   }
-  let video = state.videos.find((v) => v.id === incoming.video_id);
-  if (!video) {
+  let video=state.videos.find(v=>v.id===selection);
+  if(!video){
     await loadVideos();
-    video = state.videos.find((v) => v.id === incoming.video_id);
-    if (!video) return;
+    video=state.videos.find(v=>v.id===selection);
+    if(!video)return;
   }
-  $("nowPlayingTitle").textContent = video.title;
-  $("playerEmpty").hidden = true;
-  player.hidden = false;
-  if (state.sourceVideoId !== incoming.video_id) {
-    const token = ++state.applyToken;
-    state.sourceVideoId = incoming.video_id;
-    player.pause(); player.removeAttribute("src");
-    $("joinPlaybackBtn").hidden = true;
-    const { data, error } = await db.storage.from("watch-videos").createSignedUrl(video.object_path, 21600);
-    if (token !== state.applyToken || state.room?.video_id !== incoming.video_id) return;
-    if (error || !data?.signedUrl) {
-      state.sourceVideoId = null;
-      notify(error?.message || "Couldn't load private video"); return;
+  $("nowPlayingTitle").textContent=video.title;
+  $("playerEmpty").hidden=true;player.hidden=false;
+  if(state.sourceVideoId!==selection){
+    const token=++state.applyToken;
+    state.sourceVideoId=selection;
+    player.pause();player.removeAttribute("src");
+    $("joinPlaybackBtn").hidden=true;
+    const {data,error}=await db.storage.from(video.bucket).createSignedUrl(video.object_path,21600);
+    if(token!==state.applyToken || getSelection(state.room)!==selection)return;
+    if(error || !data?.signedUrl){
+      state.sourceVideoId=null;
+      notify(error?.message || "Couldn't load this movie from Supabase");
+      return;
     }
-    player.src = data.signedUrl;
+    player.src=data.signedUrl;
     player.load();
-    player.addEventListener("loadedmetadata", () => syncPlayerToRoom(), { once: true });
-  } else {
-    syncPlayerToRoom();
-  }
+    player.addEventListener("loadedmetadata",()=>syncPlayerToRoom(),{once:true});
+  }else syncPlayerToRoom();
 }
-function syncPlayerToRoom() {
-  const room = state.room;
-  if (!room?.video_id || !player.src || player.readyState < 1) return;
-  const duration = Number.isFinite(player.duration) ? player.duration : 0;
-  const target = Math.min(duration || 864000, Math.max(0, expectedPosition(room)));
-  if (Math.abs(player.currentTime - target) > 1.25 && !state.scrubbing) {
-    try { player.currentTime = target; } catch (_) {}
+function syncPlayerToRoom(){
+  const room=state.room;
+  if(!getSelection(room) || !player.src || player.readyState<1)return;
+  const duration=Number.isFinite(player.duration)?player.duration:0;
+  const target=Math.min(duration||864000,Math.max(0,expectedPosition(room)));
+  if(Math.abs(player.currentTime-target)>1.25 && !state.scrubbing){
+    try{player.currentTime=target;}catch(_){}
   }
-  if (room.is_playing && (!duration || target < duration - .15)) {
-    const promise = player.play();
-    if (promise && typeof promise.catch === "function") {
-      promise.then(() => { $("joinPlaybackBtn").hidden = true; })
-        .catch(() => { $("joinPlaybackBtn").hidden = false; });
+  if(room.is_playing && (!duration || target<duration-.15)){
+    const promise=player.play();
+    if(promise && typeof promise.catch==="function"){
+      promise.then(()=>{$("joinPlaybackBtn").hidden=true;})
+        .catch(()=>{$("joinPlaybackBtn").hidden=false;});
     }
-  } else { player.pause(); $("joinPlaybackBtn").hidden = true; }
-  $("playPauseBtn").textContent = room.is_playing ? "Ⅱ" : "▶";
-  $("playPauseBtn").setAttribute("aria-label", room.is_playing ? "Pause for everyone" : "Play for everyone");
+  } else {
+    player.pause();$("joinPlaybackBtn").hidden=true;
+  }
+  $("playPauseBtn").textContent=room.is_playing?"Ⅱ":"▶";
+  $("playPauseBtn").setAttribute("aria-label",room.is_playing?"Pause for everyone":"Play for everyone");
   updateClock();
 }
+
 function updateClock() {
   const duration = Number.isFinite(player.duration) ? player.duration : 0;
   const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
@@ -424,7 +433,7 @@ async function subscribeRoom(roomId) {
   channel.subscribe(async (status, err) => {
     if (state.channel !== channel) return;
     if (status === "SUBSCRIBED") {
-      await channel.track({ userId: state.user.id, name: displayName(state.user), avatar: avatarUrl(state.user) });
+      await channel.track({ userId: state.user.id, name: displayName(), avatar: avatarUrl(state.user) });
       $("syncStatus").innerHTML = '<span class="dot"></span> In sync';
       // Refresh state after subscribing to close the fetch/subscribe race.
       const { data } = await db.from("watch_rooms").select("*").eq("id", roomId).single();
@@ -457,10 +466,12 @@ async function copyText(value) {
   catch (_) { notify("Copy failed. Try using your browser's address bar."); }
 }
 async function boot() {
-  window.addEventListener("beforeunload", (event) => {
-    if (uploadInProgress) { event.preventDefault(); event.returnValue = ""; }
+  $("loginBtn").addEventListener("click",()=>{
+    show("loginView");
+    $("chooseKittu").focus();
   });
-  $("loginBtn").addEventListener("click", signIn);
+  $("chooseKittu").addEventListener("click",()=>selectPersona("Kittu"));
+  $("chooseSubbu").addEventListener("click",()=>selectPersona("Subbu"));
   $("heroLoginBtn").addEventListener("click", signIn);
   $("logoutBtn").addEventListener("click", signOut);
   $("createForm").addEventListener("submit", createRoom);
@@ -468,15 +479,17 @@ async function boot() {
   $("refreshRoomsBtn").addEventListener("click", loadMyRooms);
   $("backBtn").addEventListener("click", dashboard);
   $("leaveSeatBtn").addEventListener("click", leaveSeat);
-  $("videoFile").addEventListener("change", uploadVideo);
+  $("refreshLibraryRoom").addEventListener("click", loadVideos);
+  $("refreshLibraryDashboard").addEventListener("click",loadLibraryDashboard);
   $("copyInviteBtn").addEventListener("click", () => {
     if (state.room) copyText(location.origin + location.pathname + "?join=" + encodeURIComponent(state.room.invite_code));
   });
   $("copyCodeBtn").addEventListener("click", () => { if (state.room) copyText(state.room.invite_code); });
   $("playPauseBtn").addEventListener("click", () => {
-    if (!state.room?.video_id) return;
-    if (!state.room.is_playing) player.play().catch(() => {});
-    sendControl(state.room.video_id, player.currentTime || expectedPosition(state.room), !state.room.is_playing);
+    const selection=getSelection(state.room);
+    if(!selection)return;
+    if(!state.room.is_playing)player.play().catch(()=>{});
+    sendControl(selection,player.currentTime||expectedPosition(state.room),!state.room.is_playing);
   });
   $("joinPlaybackBtn").addEventListener("click", () => {
     player.play().then(() => { $("joinPlaybackBtn").hidden = true; }).catch(() => notify("Playback unavailable on this device."));
@@ -490,9 +503,10 @@ async function boot() {
     const duration = Number.isFinite(player.duration) ? player.duration : 0;
     const target = duration * Number(event.target.value) / 1000;
     state.scrubbing = false;
-    if (state.room?.video_id) {
-      player.currentTime = target;
-      sendControl(state.room.video_id, target, state.room.is_playing);
+    const selection=getSelection(state.room);
+    if(selection){
+      player.currentTime=target;
+      sendControl(selection,target,state.room.is_playing);
     }
   });
   $("muteBtn").addEventListener("click", () => {
@@ -505,9 +519,17 @@ async function boot() {
   });
   player.addEventListener("timeupdate", updateClock);
   player.addEventListener("loadedmetadata", updateClock);
-  player.addEventListener("error", () => { if (player.getAttribute("src")) notify("Unable to play this video. Try an H.264 MP4 or WebM."); });
+  player.addEventListener("error",()=>{
+    if(!player.getAttribute("src"))return;
+    const selection=getSelection(state.room);
+    const video=state.videos.find(v=>v.id===selection);
+    notify(video?.isMkv
+      ? "This MKV cannot play in your browser. Convert it to H.264/AAC MP4 and upload the MP4 to Supabase."
+      : "Unable to play this video. Try an H.264/AAC MP4.");
+  });
   player.addEventListener("ended", () => {
-    if (state.room?.is_playing && state.room.video_id) sendControl(state.room.video_id, player.duration || 0, false);
+    const selection=getSelection(state.room);
+    if(state.room?.is_playing && selection)sendControl(selection,player.duration||0,false);
   });
   let heartbeatPending = false;
   setInterval(async () => {
@@ -523,26 +545,28 @@ async function boot() {
     }
   });
   setInterval(() => {
-    if (state.room?.video_id && document.visibilityState === "visible" && player.readyState >= 1) {
+    if (getSelection(state.room) && document.visibilityState === "visible" && player.readyState >= 1) {
       // Correct drift, but never send a network write during this local adjustment.
       const target = expectedPosition(state.room);
       if (Math.abs(player.currentTime - target) > 2.5) syncPlayerToRoom();
     }
   }, 5000);
   db.auth.onAuthStateChange((event) => {
-    if (event === "SIGNED_OUT") { state.user = null; show("loginView"); }
+    if(event==="SIGNED_OUT"){state.user=null;state.persona=null;show("loginView");}
   });
   const { data: { user }, error } = await db.auth.getUser();
   if (error && error.name !== "AuthSessionMissingError") console.warn(error.message);
-  if (!user) { show("loginView"); return; }
-  state.user = user;
-  $("userName").textContent = displayName(user);
-  $("guestName").value = displayName(user);
-  const img = $("userAvatar"); safeAvatar(img, avatarUrl(user), displayName(user));
+  if(!user){show("loginView");return;}
+  let persona;
+  try{persona=await fetchPersona(user.id);}catch(err){console.error(err);}
+  if(!persona){show("loginView");return;}
+  state.user=user;state.persona=persona;
+  $("userName").textContent=displayName();
+  safeAvatar($("userAvatar"),avatarUrl(user),displayName());
   show("dashboardView");
   const params = new URLSearchParams(location.search);
   if (params.has("join")) await joinByCode(params.get("join"));
   else if (params.has("room")) await openRoom(params.get("room"));
-  else await loadMyRooms();
+  else await Promise.all([loadMyRooms(),loadLibraryDashboard()]);
 }
 boot().catch((err) => notify(err.message || "Something went wrong."));

@@ -1,56 +1,57 @@
 # Cinema Choopistha
 
-A private synchronized movie-watch-party app, backed by Supabase and hosted on GitHub Pages.
+A two-person synchronized watch room with a **Supabase Storage movie library**.
 
-## What it does
-
-- Guest entry (Supabase anonymous sign-ins; no email, GitHub account or password)
-- Create rooms or join with an invite link/code
-- At most two active guests per room can pause, play, seek, and select videos
-- Live online-member presence
-- Private Supabase Storage upload and signed video playback URLs
-- Responsive design for desktop and mobile
-
-## Project
-
-- Repository: https://github.com/goreadyconsulting/cinemachoopistha
+- Site: https://goreadyconsulting.github.io/cinemachoopistha/
 - Supabase project: https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau
-- Intended website: https://goreadyconsulting.github.io/cinemachoopistha/
 
-The connected Supabase project already has the watch-party SQL migration applied.
+## Enter the cinema
 
-## Required Supabase setting (one-time)
+Choose **Kittu** or **Subbu** on the login screen. These are the only allowed profile names. Each private screening room supports **one active Kittu and one active Subbu**. Each active seat is kept alive while in the room and expires after 90 seconds of inactivity.
 
-**Enable Anonymous Sign-ins** at
-https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/auth/providers
-under Authentication > Sign In / Providers > Anonymous Sign-ins.
+**Important security note:** These are **name-only profiles, not password-protected accounts**. Anyone who knows the website can select either name. Browser-local Supabase anonymous sessions provide database identities, but do not prove a real person's identity. Do not store movies that must be protected from anyone who can access this site. Password/PIN verification can be added if desired.
 
-No GitHub OAuth configuration is needed. Supabase creates a disposable user session behind the scenes, so RLS can protect rooms, uploads and playback.
+Anonymous Sign-ins must be enabled in Supabase Authentication → Sign In / Providers.
 
-**Hosting**: GitHub Pages deploys from branch `main`, folder `/(root)`.
+## Add a movie — directly from Supabase
 
-## Two-guest seat rules
+1. Go to [Supabase Storage](https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/storage/buckets).
+2. Open the private **cinema-library** bucket.
+3. Click **Upload file** and select a movie. **Upload in the bucket root**, not inside a folder.
+4. Go to the Cinema Choopistha website. The film appears in the **Shared movie library** or **Movie library** sidebar after clicking **Refresh**.
+5. Enter a room, click the movie to select it, then play/pause/seek. Both viewers share controls.
 
-- One room creator + one invited guest = two active guests maximum.
-- A third guest receives a "room is full" error, enforced by a serialized database join function.
-- The browser refreshes its active room seat every 20 seconds.
-- An inactive seat expires after 90 seconds (e.g. a guest closes their browser).
-- Click **Leave room** to release a seat immediately. Clicking **All rooms** merely pauses your seat heartbeat; it expires after 90 seconds, or can be resumed by re-entering the room.
-- Guest identity is bound to browser-local anonymous session. Clearing browser storage/signing out creates a new identity, not a permanent account.
+Dashboard uploads are not permitted from the website. Users may only list/stream movies after selecting a profile. The separate legacy \`watch-videos\` bucket (used by earlier room uploads) is preserved.
 
-All site files are static: index.html, styles.css, app.js, and config.js. There is no build step.
-Only the public Supabase publishable key is included in config.js; data protection depends on database Row Level Security and Storage policies.
+The cinema-library bucket accepts files up to **5 GiB**. Ensure Supabase **Storage → Settings → Global file size limit** is also set high enough for your movie. Large file uploads may be more reliable using Supabase's TUS resumable upload protocol.
 
-## Video limitations
+## Your MKV movie
 
-- Supported uploads: MP4 / WebM, up to **5 GB** each, using TUS resumable 6 MB chunks with a percentage progress bar. Re-select the **same file** after a network interruption to resume within 24 hours.
-- **Required:** In [Supabase Storage Settings](https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/storage/settings), set **Global file size limit** to at least **5 GB** (bucket and database limits are already 5 GiB). The connected organisation has Pro, which permits this setting. Without changing the global limit, uploads above its configured value still fail.
-- Each private video uses a six-hour signed link when it is selected for playback.
-- Each viewer streams their own video from Supabase Storage; playback commands synchronize via Realtime.
-- The browser may block automatic playback with sound. The **Tap to play on this device** button solves this locally.
-- A recent HTML5 browser is required. H.264 MP4 works best across devices.
-- This is for videos you have the rights to share. It does not bypass DRM or support paid streaming services.
+**MKV can be uploaded to the library**, but HTML5 video does not reliably play Matroska in common browsers. The movie appears in the library with a compatibility warning. Converting the container to MP4 before uploading is the most reliable route.
 
-## Suggested next iteration
+If the MKV already contains H.264 video, try a remux (fast, usually no video re-encoding):
 
-Queue reorder/delete, subtitles, host/moderator privileges, reactions/chat, and a streaming CDN/transcoding pipeline for full-length feature films.
+\`\`\`bash
+ffmpeg -i "input.mkv" -map 0:v:0 -map 0:a:0? -c:v copy -c:a aac -movflags +faststart "movie.mp4"
+\`\`\`
+
+If the original video codec is HEVC/H.265 or incompatible with a viewer's browser, convert the video to H.264:
+
+\`\`\`bash
+ffmpeg -i "input.mkv" -map 0:v:0 -map 0:a:0? -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k -movflags +faststart "movie.mp4"
+\`\`\`
+
+The \`-map 0:a:0?\` is optional when no audio stream exists. Conversion can require significant CPU time and disk space. Ensure you have the rights to share the file.
+
+## How playback works
+
+- The browser lists movie objects in Supabase Storage directly (no manual metadata table).
+- Movies are stored in a private bucket; viewers obtain signed 6-hour URLs.
+- Changing video, playing, pausing, or seeking updates a server-validated room state.
+- Realtime Postgres Changes and Presence share room state and online users.
+- Browsers may block sound autoplay; use the **Tap to play on this device** button.
+- This is a static GitHub Pages app. It does not transcode media or bypass DRM.
+
+## Applied database migrations
+
+See \`supabase/migrations/\` for the SQL already applied to the project's database.

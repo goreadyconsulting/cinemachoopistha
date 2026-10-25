@@ -20,7 +20,7 @@
     </a>
     <div class="top-actions">
       <span class="eyebrow desktop-only">YOUR SCREEN. EVERYONE'S SHOW.</span>
-      <button class="button button-bright" id="loginBtn">Enter as guest <span>↗</span></button>
+      <button class="button button-bright" id="loginBtn">Choose profile <span>↗</span></button>
       <div class="user-chip" id="userBar" hidden>
         <img id="userAvatar" alt="" width="32" height="32">
         <span id="userName"></span>
@@ -35,12 +35,15 @@
         <span class="pill"><span class="dot"></span> THE WATCH PARTY STARTS HERE</span>
         <h1>Good films.<br>Better <em>together.</em></h1>
         <p class="hero-lede">Create a private screening room. Invite one friend. Press play, pause or rewind — everyone stays on the same scene.</p>
-        <label class="guest-label" for="guestName">YOUR DISPLAY NAME</label>
-        <input class="guest-name-input" id="guestName" maxlength="28" placeholder="What should we call you?" autocomplete="nickname">
-        <button class="button button-bright button-large" id="heroLoginBtn">Enter as guest <span>↗</span></button>
-        <p class="hero-note">No account required. Up to two guests per screening room.</p>
+        <span class="guest-label">CHOOSE YOUR PROFILE</span>
+        <div class="guest-options" role="group" aria-label="Choose who is watching">
+          <button type="button" class="guest-choice" id="chooseKittu" aria-pressed="false"><span class="guest-monogram">K</span><strong>Kittu</strong><small>Profile 01</small></button>
+          <button type="button" class="guest-choice" id="chooseSubbu" aria-pressed="false"><span class="guest-monogram">S</span><strong>Subbu</strong><small>Profile 02</small></button>
+        </div>
+        <button class="button button-bright button-large" id="heroLoginBtn" disabled>Choose a profile first <span>↗</span></button>
+        <p class="hero-note">Only Kittu and Subbu can enter. No password required.</p>
         <div class="feature-pills">
-          <span>◉ Synchronized playback</span><span>◈ Two-person rooms</span><span>↑ Upload your videos</span>
+          <span>◉ Synchronized playback</span><span>◈ Two-person rooms</span><span>▣ Shared movie library</span>
         </div>
       </section>
       <section class="hero-poster" aria-label="Movie night illustration">
@@ -55,7 +58,7 @@
   </main>
 
   <main class="site-main dashboard" id="dashboardView" hidden>
-    <div class="dashboard-heading"><div><span class="section-kicker">YOUR PRIVATE CINEMA</span><h1>What are we<br><em>watching tonight?</em></h1><p>Start a new screening, or join one already in progress.</p></div><div class="large-sparkle" aria-hidden="true">✳</div></div>
+    <div class="dashboard-heading"><div><span class="section-kicker">YOUR PRIVATE CINEMA</span><h1>What are we<br><em>watching tonight?</em></h1><p>Start a screening, choose a movie from your shared library, and watch together.</p></div><div class="large-sparkle" aria-hidden="true">✳</div></div>
     <div class="dashboard-actions">
       <section class="action-card"><div class="action-icon">✦</div><h2>Host a screening</h2><p>Make a private room and invite your friends.</p>
         <form id="createForm"><label for="roomName">ROOM NAME</label><div class="form-row"><input id="roomName" required maxlength="60" placeholder="Friday night cinema" autocomplete="off"><button class="button button-bright" type="submit">Create room ↗</button></div></form>
@@ -66,15 +69,18 @@
     </div>
     <div class="your-rooms-head"><div><span class="section-kicker">PICK UP WHERE YOU LEFT OFF</span><h2>Your rooms</h2></div><button class="text-button" id="refreshRoomsBtn">↻ Refresh</button></div>
     <div class="rooms-list" id="roomsList"><div class="muted-panel">Your screenings will appear here.</div></div>
+    <div class="your-rooms-head"><div><span class="section-kicker">STORED IN SUPABASE</span><h2>Shared movie library</h2></div><button class="text-button" id="refreshLibraryDashboard">↻ Refresh movies</button></div>
+    <div class="library-dashboard" id="libraryDashboard"><div class="muted-panel">Loading your movies…</div></div>
+    <p class="helper-line">Upload or remove movies in Supabase Storage → cinema-library. Movies appear here automatically after refresh. MKV files may need conversion to play in browsers.</p>
   </main>
 
   <main class="site-main screening" id="roomView" hidden>
     <nav class="breadcrumbs"><button class="text-button" id="backBtn">← All rooms</button><span class="crumb-divider">/</span><span id="crumbName">Screening room</span></nav>
-    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Two guests maximum. All playback controls are shared.</p></div><div class="room-heading-actions"><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button><button class="button button-outline" id="leaveSeatBtn">Leave room</button></div></div>
+    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Kittu and Subbu can share playback controls. Two seats maximum.</p></div><div class="room-heading-actions"><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button><button class="button button-outline" id="leaveSeatBtn">Leave room</button></div></div>
     <div class="watch-layout">
       <section class="screen-column">
         <div class="player-shell">
-          <div class="player-empty" id="playerEmpty"><span class="empty-reel">◉</span><h2>Your screen is waiting</h2><p>Upload a video using the panel, then start the show.</p></div>
+          <div class="player-empty" id="playerEmpty"><span class="empty-reel">◉</span><h2>Your screen is waiting</h2><p>Choose a film from the shared library to start your screening.</p></div>
           <video id="player" playsinline preload="metadata" hidden></video>
           <button id="joinPlaybackBtn" class="join-playback" hidden>▶ Tap to play on this device</button>
         </div>
@@ -94,11 +100,10 @@
       </section>
       <aside class="room-sidebar">
         <div class="sidebar-section">
-          <div class="sidebar-title"><h2>Up next</h2><span class="counter" id="videoCount">0</span></div>
-          <div id="videosList" class="video-list"><p class="muted">No videos yet.</p></div>
-          <label class="upload-drop" for="videoFile"><span class="upload-symbol">↑</span><strong>Upload a video</strong><small>MP4 or WebM · up to 5 GB · resumable</small><input type="file" id="videoFile" accept="video/mp4,video/webm,.mp4,.webm" hidden></label>
-          <progress id="uploadProgress" class="upload-progress" value="0" max="100" hidden></progress>
-          <p id="uploadStatus" class="upload-status" role="status"></p>
+          <div class="sidebar-title"><h2>Movie library</h2><span class="counter" id="videoCount">0</span></div>
+          <div id="videosList" class="video-list"><p class="muted">Loading movies…</p></div>
+          <button type="button" class="button button-outline library-refresh" id="refreshLibraryRoom">↻ Refresh library</button>
+          <p class="upload-status">Add movies directly in Supabase Storage → <strong>cinema-library</strong>. MP4 is recommended for playback.</p>
         </div>
         <div class="sidebar-section people-section"><div class="sidebar-title"><h2>In the room</h2><span class="counter" id="peopleCount">0</span></div><div id="peopleList" class="people-list"><p class="muted">Connecting…</p></div></div>
         <div class="room-code"><div><span class="tiny-caption">ROOM INVITE CODE</span><strong id="roomCode">—</strong></div><button class="icon-button" id="copyCodeBtn" title="Copy code">⧉</button></div>
