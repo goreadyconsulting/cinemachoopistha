@@ -132,10 +132,6 @@ function formatTime(n){
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=String(s%60).padStart(2,"0");
   return h? h+":"+String(m).padStart(2,"0")+":"+sec:m+":"+sec;
 }
-function formatSize(n){
-  const size=Number(n)||0;
-  return size>=1024**3?(size/1024**3).toFixed(1)+" GB":Math.round(size/1024**2)+" MB";
-}
 function fileTitle(name){
   const clean=name.replace(/\.(mp4|mkv|webm)$/i,"").replace(/[._-]+/g," ").replace(/\s+/g," ").trim();
   const named=clean.match(/^(.*?)\s+((?:19|20)\d{2})(?:\s|$)/);
@@ -330,9 +326,13 @@ function filmCard(movie){
   const cover=document.createElement("span");cover.className="movie-card-cover";
   cover.append(makeMovieImage(movie));
   const name=document.createElement("span");name.className="movie-title";name.textContent=movie.title;
-  const format=document.createElement("span");format.className="movie-format";
-  format.textContent=movie.mkv?"MKV · may not play":formatSize(movie.size);
-  card.append(cover,name,format);
+  card.append(cover,name);
+  if(movie.mkv){
+    const notice=document.createElement("span");
+    notice.className="movie-format";
+    notice.textContent="MKV · may not play";
+    card.append(notice);
+  }
   card.addEventListener("click",()=>startSolo(movie).catch(err=>inform(err.message)));
   return card;
 }
@@ -345,7 +345,7 @@ function renderHome(movies){
   const featured=movies[0]||null;
   $("featureTitle").textContent=featured?.title||"Movie night";
   $("featureMeta").textContent=featured
-    ?(featured.title.match(/\((\d{4})\)/)?.[1]||"Movie")+"  ·  "+formatSize(featured.size)
+    ?(featured.title.match(/\((\d{4})\)/)?.[1]||"Your private screening")
     :"Just the two of us";
   $("featureDescription").textContent=featured
     ?"Pick a film and enjoy your own private screening.":"Add a movie to start your private screening.";
