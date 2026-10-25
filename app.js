@@ -351,7 +351,8 @@ async function applyRoom(incoming){
   $("skipBackBtn").disabled=!path || state.skipBusy;
   $("skipForwardBtn").disabled=!path || state.skipBusy;
   $("seekBar").disabled=!path;
-  $("playPauseBtn").textContent=incoming.is_playing?"Ⅱ":"▶";
+  $("playPauseBtn").querySelector(".music-icon-play").hidden=!!incoming.is_playing;
+  $("playPauseBtn").querySelector(".music-icon-pause").hidden=!incoming.is_playing;
   $("playPauseBtn").setAttribute("aria-label",incoming.is_playing?"Pause movie":"Play movie");
   if(!path){
     player.pause();player.removeAttribute("src");player.load();
@@ -427,6 +428,7 @@ function updateClock(){
     $("currentTime").textContent=formatTime(position);
   }
   $("duration").textContent=formatTime(length);
+  $("seekBar").setAttribute("aria-valuetext",formatTime(position)+(length?" of "+formatTime(length):""));
 }
 async function subscribeCinema(id){
   const {data:{session}}=await db.auth.getSession();
@@ -678,7 +680,8 @@ function bindEvents(){
   });
   $("muteBtn").addEventListener("click",()=>{
     player.muted=!player.muted;
-    $("muteBtn").textContent=player.muted?"◖×":"◖))";
+    $("muteBtn").querySelector(".sound-on").hidden=player.muted;
+    $("muteBtn").querySelector(".sound-off").hidden=!player.muted;
     $("muteBtn").setAttribute("aria-label",player.muted?"Unmute":"Mute");
   });
   $("fullscreenBtn").addEventListener("click",()=>{

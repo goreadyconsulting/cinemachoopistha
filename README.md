@@ -34,7 +34,7 @@ WebVTT subtitle sidecar files may be uploaded with the same base filename and a 
 - One film feature, one real movie shelf, no placeholder movie categories
 - One shared room; no invite codes, manual room creation, or upload UI
 - Responsive theatre, native fullscreen, optional picture-in-picture, subtitles, loading indicators
-- Synchronized 10-second skip forward/backward buttons; skipping works even when paused
+- Music-player-style previous / play-pause / next icons with no visible numeric labels; previous/next still skip exactly 10 seconds for both viewers, including while paused
 - Private two-person live chat with a compact, collapsible bottom-right chat window on all devices
 - Shared playback state and resume position with local volume controls
 - Presence indicators for Kittu and Subbu
@@ -64,3 +64,7 @@ The \`skip_cinema_seconds\` RPC serializes updates to the one shared room so 10-
 - Refreshing while in the cinema restores the watch screen in the same browser tab; autoplay with sound may still require a tap.
 - Without a verified session, the page shows the Kittu/Subbu profile chooser after the heart loader.
 - Chat starts minimized as a floating bottom-right button; it opens into a compact window with a collapse control and unread message count.
+
+## Music-player controls
+
+The player has a thin timeline above a centered three-button transport: rewind 10 seconds, play/pause, forward 10 seconds. The skip controls use icon-only double-chevron shapes with descriptive accessibility labels (no visible digits). Elapsed/duration timestamps remain available to assistive technology but are visually hidden. Subtitle, mute, picture-in-picture and fullscreen controls sit on the right and remain responsive on mobile.

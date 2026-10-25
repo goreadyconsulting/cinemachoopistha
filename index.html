@@ -120,16 +120,41 @@
           <button id="localPlayBtn" type="button" class="tap-to-play" hidden><span aria-hidden="true">▶</span> Tap to play</button>
         </div>
         <div class="playbar">
-          <button id="playPauseBtn" class="player-button main-player-button" type="button" aria-label="Play" disabled><span aria-hidden="true">▶</span></button>
-          <button id="skipBackBtn" class="player-button skip-button" type="button" aria-label="Rewind 10 seconds for both viewers" title="Back 10 seconds" disabled>↶<small>10</small></button>
-          <span id="currentTime" class="timecode">0:00</span>
-          <input id="seekBar" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Seek movie">
-          <span id="duration" class="timecode">0:00</span>
-          <button id="skipForwardBtn" class="player-button skip-button" type="button" aria-label="Forward 10 seconds for both viewers" title="Forward 10 seconds" disabled>↷<small>10</small></button>
-          <button id="captionsBtn" class="player-button" type="button" aria-label="Toggle subtitles" title="Subtitles" hidden>CC</button>
-          <button id="muteBtn" class="player-button" type="button" aria-label="Mute" title="Mute">◖))</button>
-          <button id="pipBtn" class="player-button pip-button" type="button" aria-label="Picture in picture" title="Picture in picture">▣</button>
-          <button id="fullscreenBtn" class="player-button" type="button" aria-label="Fullscreen" title="Fullscreen">⛶</button>
+          <div class="playbar-track">
+            <span id="currentTime" class="sr-only">0:00</span>
+            <input id="seekBar" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Movie position">
+            <span id="duration" class="sr-only">0:00</span>
+          </div>
+          <div class="playbar-actions">
+            <span class="playbar-balance" aria-hidden="true"></span>
+            <div class="music-controls" aria-label="Playback controls">
+              <button id="skipBackBtn" class="player-button music-skip" type="button" aria-label="Rewind 10 seconds for both viewers" title="Rewind 10 seconds" disabled>
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M11.3 6.2a1 1 0 0 0-1.5-.86L2.9 11.1a1.1 1.1 0 0 0 0 1.8l6.9 5.76a1 1 0 0 0 1.5-.86V6.2Zm10 0a1 1 0 0 0-1.5-.86l-6.9 5.76a1.1 1.1 0 0 0 0 1.8l6.9 5.76a1 1 0 0 0 1.5-.86V6.2Z"/></svg>
+              </button>
+              <button id="playPauseBtn" class="player-button main-player-button" type="button" aria-label="Play" disabled>
+                <svg class="music-icon-play" viewBox="0 0 24 24" width="25" height="25" fill="currentColor" aria-hidden="true"><path d="M8 5.8a1.2 1.2 0 0 1 1.85-1.02L20 11a1.2 1.2 0 0 1 0 2.02L9.85 19.2A1.2 1.2 0 0 1 8 18.18V5.8Z"/></svg>
+                <svg class="music-icon-pause" viewBox="0 0 24 24" width="25" height="25" fill="currentColor" aria-hidden="true" hidden><rect x="6.3" y="4.7" width="4.3" height="14.6" rx="1.1"/><rect x="13.4" y="4.7" width="4.3" height="14.6" rx="1.1"/></svg>
+              </button>
+              <button id="skipForwardBtn" class="player-button music-skip" type="button" aria-label="Forward 10 seconds for both viewers" title="Forward 10 seconds" disabled>
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M2.7 6.2a1 1 0 0 1 1.5-.86l6.9 5.76a1.1 1.1 0 0 1 0 1.8L4.2 18.66a1 1 0 0 1-1.5-.86V6.2Zm10 0a1 1 0 0 1 1.5-.86l6.9 5.76a1.1 1.1 0 0 1 0 1.8l-6.9 5.76a1 1 0 0 1-1.5-.86V6.2Z"/></svg>
+              </button>
+            </div>
+            <div class="player-utilities">
+              <button id="captionsBtn" class="player-button utility-button" type="button" aria-label="Toggle subtitles" title="Subtitles" hidden>
+                <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="M9.5 10H8a2.5 2.5 0 0 0 0 5h1.5M17 10h-1.5a2.5 2.5 0 0 0 0 5H17"/></svg>
+              </button>
+              <button id="muteBtn" class="player-button utility-button" type="button" aria-label="Mute" title="Mute">
+                <svg class="sound-on" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>
+                <svg class="sound-off" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" hidden><path d="M4 9v6h4l5 4V5L8 9H4Z"/><path d="m17 10 5 5m0-5-5 5"/></svg>
+              </button>
+              <button id="pipBtn" class="player-button utility-button pip-button" type="button" aria-label="Picture in picture" title="Picture in picture">
+                <svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><rect x="12" y="11" width="7" height="5.5" rx="1" fill="currentColor" stroke="none"/></svg>
+              </button>
+              <button id="fullscreenBtn" class="player-button utility-button" type="button" aria-label="Fullscreen" title="Fullscreen">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg>
+              </button>
+            </div>
+          </div>
         </div>
       </section>
       <div class="watch-info">
