@@ -49,7 +49,7 @@ function show(view){
 }
 
 let controlsHideTimer=null;
-let hoveringControls=false;
+let controlsPointerDown=false;
 let keyboardFocusControls=false;
 let keyboardNavigation=false;
 
@@ -75,12 +75,23 @@ function updatePlayerIndicators(){
   full.setAttribute("aria-pressed",String(fullscreen));
   full.setAttribute("aria-label",fullscreen?"Exit fullscreen":"Fullscreen");
 }
+function updatePlayPauseIndicator(isPlaying){
+  // The shared room is authoritative, rather than the local video element.
+  const btn=$("playPauseBtn");
+  const playing=Boolean(isPlaying);
+  btn.querySelector(".music-icon-play").hidden=playing;
+  btn.querySelector(".music-icon-pause").hidden=!playing;
+  btn.classList.toggle("active",playing);
+  btn.setAttribute("aria-pressed",String(playing));
+  btn.setAttribute("aria-label",playing?"Pause movie":"Play movie");
+  btn.title=playing?"Pause":"Play";
+}
 function playerControlsPinned(){
   return !$("watchView").hidden && (
     !state.room?.library_path || !state.room.is_playing ||
     player.paused || state.scrubbing ||
     !$("loadingVideo").hidden || !$("localPlayBtn").hidden ||
-    hoveringControls || keyboardFocusControls
+    controlsPointerDown || keyboardFocusControls
   );
 }
 function clearPlayerControlsTimer(){
@@ -107,7 +118,7 @@ function refreshPlayerControls(){
 }
 function resetPlayerControls(){
   clearPlayerControlsTimer();
-  hoveringControls=false;
+  controlsPointerDown=false;
   keyboardFocusControls=false;
   keyboardNavigation=false;
   $("playerShell").classList.add("controls-visible");
@@ -559,9 +570,7 @@ async function applyRoom(incoming){
   $("skipBackBtn").disabled=!path || state.skipBusy;
   $("skipForwardBtn").disabled=!path || state.skipBusy;
   $("seekBar").disabled=!path;
-  $("playPauseBtn").querySelector(".music-icon-play").hidden=!!incoming.is_playing;
-  $("playPauseBtn").querySelector(".music-icon-pause").hidden=!incoming.is_playing;
-  $("playPauseBtn").setAttribute("aria-label",incoming.is_playing?"Pause movie":"Play movie");
+  updatePlayPauseIndicator(incoming.is_playing);
   if(playbackChanged)refreshPlayerControls();
   if(!path){
     player.pause();player.removeAttribute("src");player.load();
@@ -939,15 +948,19 @@ function bindEvents(){
       }else revealPlayerControls();
     }else revealPlayerControls();
   });
-  controlBar.addEventListener("pointerenter",event=>{
-    if(event.pointerType==="mouse") {
-      hoveringControls=true;
-      revealPlayerControls();
-    }
+  controlBar.addEventListener("pointerdown",()=>{
+    controlsPointerDown=true;
+    revealPlayerControls();
   });
-  controlBar.addEventListener("pointerleave",()=>{
-    hoveringControls=false;
+  const releaseControls=()=>{
+    controlsPointerDown=false;
     refreshPlayerControls();
+  };
+  controlBar.addEventListener("pointerup",releaseControls);
+  controlBar.addEventListener("pointercancel",releaseControls);
+  // Release a captured pointer that is lifted outside of the control bar.
+  document.addEventListener("pointerup",()=>{
+    if(controlsPointerDown)releaseControls();
   });
   document.addEventListener("keydown",event=>{
     if(event.key==="Tab"||event.key.startsWith("Arrow"))keyboardNavigation=true;

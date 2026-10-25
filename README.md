@@ -95,3 +95,14 @@ Mute, subtitles, picture-in-picture, and fullscreen show a lavender/purple
 highlight while active, and their aria-pressed state reflects the browser's
 actual current setting. The play/pause glyph reflects shared playback status;
 back/forward are momentary 10-second shared seeks.
+
+
+## Play/pause state and idle controls
+
+The centered play/pause button now reflects the authoritative shared room state:
+purple pause icon while playing (\`aria-pressed=true\`) and a neutral play icon
+while paused (\`aria-pressed=false\`). Rewind/forward remain momentary actions.
+Playback controls auto-hide after approximately three seconds of inactivity even
+if a mouse pointer is stationary over the control bar. They remain visible during
+a held click/touch, timeline scrubbing, keyboard interaction, buffering, and
+paused playback. Moving the mouse or tapping the player restores the overlay.

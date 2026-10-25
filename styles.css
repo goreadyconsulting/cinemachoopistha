@@ -346,3 +346,19 @@
 @media(prefers-reduced-motion:reduce){
  .screen .playbar,.screen.controls-visible .playbar{transition:none;transform:none}
 }
+
+
+/* Shared play state: distinguish active playback from paused playback.
+   The entire control bar (including play/pause) can fade after inactivity. */
+.screen .player-button.main-player-button.active{
+  background:#8057bb;
+  color:#fff;
+  box-shadow:0 6px 25px #0006,inset 0 0 0 1px #d1b3ff82;
+}
+.screen .player-button.main-player-button.active:hover:not(:disabled){
+  background:#9c76d3;
+}
+.screen .player-button.main-player-button:not(.active){
+  background:#f8f3fb;
+  color:#1a1321;
+}
