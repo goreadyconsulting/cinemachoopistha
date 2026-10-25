@@ -289,3 +289,60 @@
   .playbar-actions{min-height:48px}
   .music-controls{margin:0 auto}
 }
+
+
+/* Immersive controls: overlaid on video and faded when idle. */
+.theatre{position:relative;isolation:isolate}
+.screen{position:relative;overflow:hidden;isolation:isolate}
+.screen video{z-index:0}
+.screen-empty{z-index:1}
+.loading-video{z-index:2;pointer-events:none}
+.tap-to-play{z-index:5}
+.screen .playbar{
+  position:absolute;z-index:6;left:0;right:0;bottom:0;
+  display:block;width:100%;max-width:none;height:auto;margin:0;
+  padding:clamp(12px,2.8vw,28px) clamp(12px,2.4vw,28px) clamp(10px,1.6vw,18px);
+  background:linear-gradient(to bottom,transparent 0%,rgba(4,3,9,.58) 29%,rgba(4,3,9,.92) 100%);
+  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(8px);
+  transition:opacity .26s ease,transform .26s ease,visibility 0s linear .26s;
+}
+.screen.controls-visible .playbar{
+  opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0);
+  transition:opacity .24s ease,transform .24s ease,visibility 0s;
+}
+.screen .playbar-track{padding:0 1px}
+.screen .playbar-track #seekBar{accent-color:#c6a5fa;margin:0;cursor:pointer}
+.screen .playbar-actions{min-height:61px;margin-top:2px}
+.screen .player-button.music-skip{color:#f2eef7}
+.screen .player-button.main-player-button{background:#f8f3fb;color:#1a1321}
+.screen .player-button.utility-button{color:#e2dae9}
+.screen .player-button.utility-button.active{
+  background:rgba(126,80,203,.78);color:white;
+  box-shadow:inset 0 0 0 1px #cfb8fc90;
+}
+.screen .player-button.utility-button.active:hover{background:rgba(145,101,221,.88)}
+.screen .player-button:focus-visible,.screen #seekBar:focus-visible{outline:2px solid #d4b5ff;outline-offset:2px}
+@media(max-width:650px){
+ .screen .playbar{padding:12px 9px 8px}
+ .screen .playbar-actions{min-height:0;margin-top:3px;gap:4px}
+ .screen .music-controls{gap:7px}
+ .screen .player-utilities{margin-top:0}
+ .screen .player-button.utility-button{width:35px;min-width:35px;height:35px}
+}
+@media(max-height:500px) and (orientation:landscape){
+ .screen .playbar{padding:7px 12px 5px}
+ .screen .playbar-actions{min-height:50px}
+}
+.theatre:fullscreen,.theatre:-webkit-full-screen{
+ padding:0;display:flex;align-items:center;justify-content:center;
+ width:100vw;height:100dvh;background:black;
+}
+.theatre:fullscreen .screen,.theatre:-webkit-full-screen .screen{
+ height:100%;max-height:100%;width:100%;flex:1 1 auto;aspect-ratio:auto;border-radius:0;
+}
+.theatre:fullscreen .playbar,.theatre:-webkit-full-screen .playbar{
+ position:absolute;bottom:0;width:100%;height:auto;flex:none;
+}
+@media(prefers-reduced-motion:reduce){
+ .screen .playbar,.screen.controls-visible .playbar{transition:none;transform:none}
+}

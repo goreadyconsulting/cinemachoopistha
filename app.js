@@ -36,6 +36,8 @@ function show(view){
     $(id).hidden=id!==view;
   $("topActions").hidden=view==="loginView"||view==="loadingView";
   document.body.dataset.screen=view;
+  if(view==="watchView")resetPlayerControls();
+  else clearPlayerControlsTimer();
   if(state.persona){
     $("signedInName").textContent=state.persona;
     $("switchProfileBtn").textContent=state.persona.charAt(0);
@@ -45,6 +47,72 @@ function show(view){
   }
   window.scrollTo({top:0,behavior:"auto"});
 }
+
+let controlsHideTimer=null;
+let hoveringControls=false;
+let keyboardFocusControls=false;
+let keyboardNavigation=false;
+
+function updatePlayerIndicators(){
+  const cc=Array.from(player.textTracks||[]).some(track=>
+    (track.kind==="subtitles"||track.kind==="captions")&&track.mode==="showing"
+  );
+  const muted=player.muted||player.volume===0;
+  const pip=!!document.pictureInPictureElement;
+  const fullscreen=!!document.fullscreenElement||!!player.webkitDisplayingFullscreen;
+  const captions=$("captionsBtn"),mute=$("muteBtn"),pipButton=$("pipBtn"),full=$("fullscreenBtn");
+  captions.classList.toggle("active",cc);
+  captions.setAttribute("aria-pressed",String(cc));
+  captions.setAttribute("aria-label",cc?"Turn subtitles off":"Turn subtitles on");
+  mute.classList.toggle("active",muted);
+  mute.setAttribute("aria-pressed",String(muted));
+  mute.setAttribute("aria-label",muted?"Unmute":"Mute");
+  mute.querySelector(".sound-on").hidden=muted;
+  mute.querySelector(".sound-off").hidden=!muted;
+  pipButton.classList.toggle("active",pip);
+  pipButton.setAttribute("aria-pressed",String(pip));
+  full.classList.toggle("active",fullscreen);
+  full.setAttribute("aria-pressed",String(fullscreen));
+  full.setAttribute("aria-label",fullscreen?"Exit fullscreen":"Fullscreen");
+}
+function playerControlsPinned(){
+  return !$("watchView").hidden && (
+    !state.room?.library_path || !state.room.is_playing ||
+    player.paused || state.scrubbing ||
+    !$("loadingVideo").hidden || !$("localPlayBtn").hidden ||
+    hoveringControls || keyboardFocusControls
+  );
+}
+function clearPlayerControlsTimer(){
+  if(controlsHideTimer!==null){
+    clearTimeout(controlsHideTimer);
+    controlsHideTimer=null;
+  }
+}
+function revealPlayerControls(){
+  clearPlayerControlsTimer();
+  const shell=$("playerShell");
+  if($("watchView").hidden)return;
+  shell.classList.add("controls-visible");
+  if(!playerControlsPinned()){
+    controlsHideTimer=setTimeout(()=>{
+      controlsHideTimer=null;
+      if(!playerControlsPinned())shell.classList.remove("controls-visible");
+    },3000);
+  }
+}
+function refreshPlayerControls(){
+  if($("watchView").hidden)return;
+  revealPlayerControls();
+}
+function resetPlayerControls(){
+  clearPlayerControlsTimer();
+  hoveringControls=false;
+  keyboardFocusControls=false;
+  keyboardNavigation=false;
+  $("playerShell").classList.add("controls-visible");
+}
+
 function formatTime(n){
   const s=Math.max(0,Math.floor(Number.isFinite(n)?n:0));
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=String(s%60).padStart(2,"0");
@@ -410,6 +478,7 @@ async function enterCinema(desiredMovie=null){
     state.revision=-1;state.sourcePath=null;
     try{sessionStorage.setItem("cinema-open-watch","1");}catch(_){}
     show("watchView");
+    updatePlayerIndicators();
     $("connectionText").textContent="Connecting…";
     $("connectionState").classList.remove("connected");
     await refreshMovies();
@@ -434,6 +503,7 @@ async function enterCinema(desiredMovie=null){
   }finally{state.joining=false;btn.disabled=state.movies.length===0;}
 }
 async function leaveCinema(){
+  resetPlayerControls();
   try{sessionStorage.removeItem("cinema-open-watch");}catch(_){}
   setChatOpen(false);
   resetChat();
@@ -480,6 +550,7 @@ function updatePlayingTitle(){
 async function applyRoom(incoming){
   if(!state.room || incoming?.id!==state.room.id)return;
   if(incoming.revision<state.revision)return;
+  const playbackChanged=incoming.revision!==state.revision;
   const oldPath=state.room?.library_path;
   state.room=incoming;state.revision=incoming.revision;
   updatePlayingTitle();
@@ -491,6 +562,7 @@ async function applyRoom(incoming){
   $("playPauseBtn").querySelector(".music-icon-play").hidden=!!incoming.is_playing;
   $("playPauseBtn").querySelector(".music-icon-pause").hidden=!incoming.is_playing;
   $("playPauseBtn").setAttribute("aria-label",incoming.is_playing?"Pause movie":"Play movie");
+  if(playbackChanged)refreshPlayerControls();
   if(!path){
     player.pause();player.removeAttribute("src");player.load();
     state.sourcePath=null;
@@ -525,6 +597,7 @@ async function applyRoom(incoming){
 async function attachSubtitles(path,token){
   for(const old of player.querySelectorAll("track"))old.remove();
   $("captionsBtn").hidden=true;
+  updatePlayerIndicators();
   // Optional WebVTT sidecars in the same bucket, e.g. Film.en.vtt or Film.vtt.
   const base=path.replace(/\.(mp4|mkv|webm)$/i,"");
   const {data,error}=await db.storage.from(BUCKET).list("",{limit:100});
@@ -537,9 +610,12 @@ async function attachSubtitles(path,token){
     const label=f.name.match(/\.([a-z]{2,3})\.vtt$/i)?.[1]||"English";
     const tr=document.createElement("track");tr.kind="subtitles";
     tr.label=label.toUpperCase();tr.srclang=/^[a-z]{2,3}$/i.test(label)?label.toLowerCase():"en";
-    tr.src=signed.signedUrl;tr.default=i===0;player.append(tr);
+    tr.src=signed.signedUrl;tr.default=i===0;
+    tr.addEventListener("load",updatePlayerIndicators);
+    player.append(tr);
   }
   $("captionsBtn").hidden=player.querySelectorAll("track").length===0;
+  updatePlayerIndicators();
 }
 function syncPlayback(){
   const room=state.room;
@@ -790,11 +866,15 @@ function bindEvents(){
     updateSharedPlayback(r.library_path,position,!r.is_playing).catch(console.error);
   });
   $("localPlayBtn").addEventListener("click",()=>{
-    player.play().then(()=>$("localPlayBtn").hidden=true)
-      .catch(()=>inform("Tap Play again once the movie is ready."));
+    revealPlayerControls();
+    player.play().then(()=>{
+      $("localPlayBtn").hidden=true;
+      refreshPlayerControls();
+    }).catch(()=>inform("Tap Play again once the movie is ready."));
   });
   $("seekBar").addEventListener("input",e=>{
     state.scrubbing=true;
+    revealPlayerControls();
     const d=Number.isFinite(player.duration)?player.duration:0;
     $("currentTime").textContent=formatTime(d*Number(e.target.value)/1000);
   });
@@ -802,6 +882,7 @@ function bindEvents(){
     const d=Number.isFinite(player.duration)?player.duration:0;
     const pos=d*Number(e.target.value)/1000;
     state.scrubbing=false;
+    refreshPlayerControls();
     if(state.room?.library_path){
       if(player.readyState>=1)player.currentTime=pos;
       updateSharedPlayback(state.room.library_path,pos,state.room.is_playing).catch(console.error);
@@ -812,16 +893,19 @@ function bindEvents(){
     if(!textTracks.length)return;
     const turningOn=textTracks.every(t=>t.mode!=="showing");
     for(const t of textTracks)t.mode=turningOn?"showing":"disabled";
-    $("captionsBtn").classList.toggle("active",turningOn);
-    $("captionsBtn").setAttribute("aria-pressed",String(turningOn));
+    updatePlayerIndicators();
+    revealPlayerControls();
   });
   $("muteBtn").addEventListener("click",()=>{
-    player.muted=!player.muted;
-    $("muteBtn").querySelector(".sound-on").hidden=player.muted;
-    $("muteBtn").querySelector(".sound-off").hidden=!player.muted;
-    $("muteBtn").setAttribute("aria-label",player.muted?"Unmute":"Mute");
+    if(player.muted || player.volume===0){
+      if(player.volume===0)player.volume=1;
+      player.muted=false;
+    }else player.muted=true;
+    updatePlayerIndicators();
+    revealPlayerControls();
   });
   $("fullscreenBtn").addEventListener("click",()=>{
+    revealPlayerControls();
     if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
     else if($("playerShell").parentElement.requestFullscreen){
       $("playerShell").parentElement.requestFullscreen().catch(()=>inform("Fullscreen isn't supported here."));
@@ -830,19 +914,86 @@ function bindEvents(){
   });
   if(!document.pictureInPictureEnabled || !player.requestPictureInPicture)$("pipBtn").hidden=true;
   $("pipBtn").addEventListener("click",async()=>{
+    revealPlayerControls();
     try{
       if(document.pictureInPictureElement)await document.exitPictureInPicture();
       else await player.requestPictureInPicture();
     }catch(err){inform("Picture-in-picture isn't available here.");}
   });
+  const shell=$("playerShell"),controlBar=$("playerControls");
+  shell.addEventListener("pointermove",event=>{
+    if(event.pointerType==="mouse"||event.pointerType==="pen")revealPlayerControls();
+  });
+  shell.addEventListener("pointerdown",event=>{
+    keyboardNavigation=false;
+    keyboardFocusControls=false;
+    const insideControls=!!event.target.closest?.("#playerControls");
+    if(insideControls){
+      revealPlayerControls();
+      return;
+    }
+    if(event.pointerType==="touch"||event.pointerType==="pen"){
+      if(shell.classList.contains("controls-visible")&&!playerControlsPinned()){
+        clearPlayerControlsTimer();
+        shell.classList.remove("controls-visible");
+      }else revealPlayerControls();
+    }else revealPlayerControls();
+  });
+  controlBar.addEventListener("pointerenter",event=>{
+    if(event.pointerType==="mouse") {
+      hoveringControls=true;
+      revealPlayerControls();
+    }
+  });
+  controlBar.addEventListener("pointerleave",()=>{
+    hoveringControls=false;
+    refreshPlayerControls();
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Tab"||event.key.startsWith("Arrow"))keyboardNavigation=true;
+  });
+  controlBar.addEventListener("focusin",()=>{
+    if(keyboardNavigation){
+      keyboardFocusControls=true;
+      revealPlayerControls();
+    }
+  });
+  controlBar.addEventListener("focusout",event=>{
+    if(!controlBar.contains(event.relatedTarget)){
+      keyboardFocusControls=false;
+      refreshPlayerControls();
+    }
+  });
+  controlBar.addEventListener("keydown",event=>{
+    if(event.key==="Escape"){
+      keyboardFocusControls=false;
+      event.target.blur?.();
+      refreshPlayerControls();
+    }
+  });
+  player.addEventListener("volumechange",updatePlayerIndicators);
+  if(player.textTracks?.addEventListener)
+    player.textTracks.addEventListener("change",updatePlayerIndicators);
+  player.addEventListener("enterpictureinpicture",updatePlayerIndicators);
+  player.addEventListener("leavepictureinpicture",updatePlayerIndicators);
+  document.addEventListener("fullscreenchange",()=>{
+    updatePlayerIndicators();
+    refreshPlayerControls();
+  });
+  player.addEventListener("webkitbeginfullscreen",updatePlayerIndicators);
+  player.addEventListener("webkitendfullscreen",updatePlayerIndicators);
+  player.addEventListener("play",refreshPlayerControls);
+  player.addEventListener("pause",refreshPlayerControls);
+  player.addEventListener("seeking",refreshPlayerControls);
   player.addEventListener("timeupdate",updateClock);
-  player.addEventListener("loadedmetadata",()=>{$("loadingVideo").hidden=true;syncPlayback();});
-  player.addEventListener("canplay",()=>$("loadingVideo").hidden=true);
-  player.addEventListener("waiting",()=>{if(state.room?.is_playing)$("loadingVideo").hidden=false;});
-  player.addEventListener("playing",()=>$("loadingVideo").hidden=true);
+  player.addEventListener("loadedmetadata",()=>{$("loadingVideo").hidden=true;syncPlayback();refreshPlayerControls();});
+  player.addEventListener("canplay",()=>{$("loadingVideo").hidden=true;refreshPlayerControls();});
+  player.addEventListener("waiting",()=>{if(state.room?.is_playing){$("loadingVideo").hidden=false;refreshPlayerControls();}});
+  player.addEventListener("playing",()=>{$("loadingVideo").hidden=true;refreshPlayerControls();});
   player.addEventListener("error",()=>{
     if(!player.getAttribute("src"))return;
     $("loadingVideo").hidden=true;
+    refreshPlayerControls();
     const movie=currentMovie();
     $("playerNote").hidden=false;
     $("playerNote").textContent=movie?.mkv
@@ -850,6 +1001,7 @@ function bindEvents(){
       :"This file couldn't play. Try an H.264/AAC MP4.";
   });
   player.addEventListener("ended",()=>{
+    refreshPlayerControls();
     if(state.room?.library_path && state.room.is_playing)
       updateSharedPlayback(state.room.library_path,player.duration||0,false).catch(console.error);
   });

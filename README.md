@@ -81,3 +81,17 @@ The homepage automatically tries to show a film poster instead of the generic ci
 The player and its WebVTT subtitle matching are unchanged. Videos must be uploaded separately; a \`.vtt\` file alone won't appear as a movie in the catalog.
 
 Note: Promotional posters are third-party assets; their sources may prohibit hotlinking or change their URLs. Upload a personally sourced matching \`.jpg\` / \`.png\` / \`.webp\` for full control over reliability, with appropriate rights to use the artwork.
+
+
+## Immersive playback controls
+
+Player actions and progress are overlaid inside the video instead of occupying
+space beneath it. The bar fades after about 3 seconds of inactivity while the
+movie plays, returns on mouse movement or touch, and remains visible when paused,
+loading, scrubbing or being actively navigated by keyboard. The floating chat is
+not part of the overlay.
+
+Mute, subtitles, picture-in-picture, and fullscreen show a lavender/purple
+highlight while active, and their aria-pressed state reflects the browser's
+actual current setting. The play/pause glyph reflects shared playback status;
+back/forward are momentary 10-second shared seeks.

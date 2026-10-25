@@ -110,7 +110,7 @@
       </div>
 
       <section class="theatre" aria-label="Video player">
-        <div class="screen" id="playerShell">
+        <div class="screen controls-visible" id="playerShell">
           <video id="player" playsinline preload="metadata" crossorigin="anonymous"></video>
           <div id="playerEmpty" class="screen-empty">
             <span aria-hidden="true" class="screen-play-symbol">▶</span>
@@ -118,8 +118,7 @@
           </div>
           <div id="loadingVideo" class="loading-video" hidden aria-live="polite"><span class="spinner"></span></div>
           <button id="localPlayBtn" type="button" class="tap-to-play" hidden><span aria-hidden="true">▶</span> Tap to play</button>
-        </div>
-        <div class="playbar">
+          <div class="playbar" id="playerControls" aria-label="Video playback controls">
           <div class="playbar-track">
             <span id="currentTime" class="sr-only">0:00</span>
             <input id="seekBar" type="range" min="0" max="1000" step="1" value="0" disabled aria-label="Movie position">
@@ -155,6 +154,7 @@
               </button>
             </div>
           </div>
+        </div>
         </div>
       </section>
       <div class="watch-info">
