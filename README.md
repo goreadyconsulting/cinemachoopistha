@@ -68,3 +68,16 @@ The \`skip_cinema_seconds\` RPC serializes updates to the one shared room so 10-
 ## Music-player controls
 
 The player has a thin timeline above a centered three-button transport: rewind 10 seconds, play/pause, forward 10 seconds. The skip controls use icon-only double-chevron shapes with descriptive accessibility labels (no visible digits). Elapsed/duration timestamps remain available to assistive technology but are visually hidden. Subtitle, mute, picture-in-picture and fullscreen controls sit on the right and remain responsive on mobile.
+
+
+## Movie posters
+
+The homepage automatically tries to show a film poster instead of the generic cinematic SVG:
+
+1. **Optional local poster** (most reliable): put a JPG, PNG or WebP in \`cinema-library\` beside the MP4, named to match its base filename, for example \`WALL-E.mp4\` + \`WALL-E.jpg\` (or \`WALL-E.poster.jpg\`). The client obtains a signed read URL from the same private bucket. Posters remain in Supabase, not in GitHub.
+2. **Known-film poster mapping**: Ante Sundaraniki (2022), WALL·E (2008), and DC (2026, Tamil) have curated public promotional poster URLs.
+3. **Other movie titles**: the frontend attempts a conservative film-title search using Wikipedia's PageImages API (requires internet access to Wikipedia and its thumbnail host). A failed or ambiguous search leaves the SVG fallback, rather than displaying an incorrect movie poster.
+
+The player and its WebVTT subtitle matching are unchanged. Videos must be uploaded separately; a \`.vtt\` file alone won't appear as a movie in the catalog.
+
+Note: Promotional posters are third-party assets; their sources may prohibit hotlinking or change their URLs. Upload a personally sourced matching \`.jpg\` / \`.png\` / \`.webp\` for full control over reliability, with appropriate rights to use the artwork.

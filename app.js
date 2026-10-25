@@ -3,7 +3,20 @@ import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
 const db=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const BUCKET="cinema-library";
-const POSTER_ANTE="https://www.impawards.com/intl/india/2022/posters/ante_sundharaniki_xlg.jpg";
+// Current collection gets immediately-available artwork; new titles can resolve
+// through Wikipedia's public PageImages API (no private API keys in GitHub).
+const CURATED_POSTERS={
+  antesundaraniki:"https://assets.gadgets360cdn.com/pricee/assets/product/202203/Ante-Sundharaniki-Poster_1648055227.jpg",
+  walle:"https://filmartgallery.com/cdn/shop/files/WALL-E-Vintage-Movie-Poster-Original_af15a6df.jpg?v=1741753990",
+  dc:"https://fr.web.img5.acsta.net/img/b1/6a/b16a65e4c8f1f36aaa2ab321fdae9f5e.jpg"
+};
+const WIKIPEDIA_PAGES={
+  antesundaraniki:"Ante Sundaraniki",
+  walle:"WALL-E",
+  dc:"DC (film)"
+};
+const posterLookupCache=new Map();
+const FALLBACK_POSTER="./cinema-night.svg";
 const $=(id)=>document.getElementById(id);
 const player=$("player");
 const state={ user:null,persona:null,selectedPersona:null,room:null,channel:null,movies:[],status:null,
@@ -45,22 +58,131 @@ function fileTitle(name){
   const clean=name.replace(/\.(mp4|mkv|webm)$/i,"").replace(/[._-]+/g," ").replace(/\s+/g," ").trim();
   const named=clean.match(/^(.*?)\s+((?:19|20)\d{2})(?:\s|$)/);
   if(named && named[1].trim())return named[1].trim()+" ("+named[2]+")";
-  return clean.replace(/\s+(1080p|720p|2160p|HEVC|WEB DL|BluRay|x264|x265|DDP5).*$/i,"").trim()||"Untitled movie";
+  const raw=clean.replace(/\s+(1080p|720p|2160p|HEVC|WEB DL|BluRay|x264|x265|DDP5).*$/i,"").trim();
+  if(/^wall\s*e$/i.test(raw))return "WALL·E (2008)";
+  if(/^dc$/i.test(raw))return "DC (2026)";
+  return raw||"Untitled movie";
+}
+function posterKey(movie){
+  return (movie?.title||"").replace(/\((?:19|20)\d{2}\)/g,"")
+    .toLowerCase().replace(/[^a-z0-9]/g,"");
 }
 function coverUrl(movie){
-  return movie && /ante\s*sundaraniki/i.test(movie.title)?POSTER_ANTE:"./cinema-night.svg";
+  return movie?.posterUrl||CURATED_POSTERS[posterKey(movie)]||FALLBACK_POSTER;
+}
+function wikipediaPosterUrl(url){
+  try {
+    const parsed=new URL(url);
+    // Restrict auto-sourced artwork to Wikimedia image CDNs.
+    if(parsed.protocol==="https:"&&(
+      parsed.hostname==="upload.wikimedia.org"||
+      parsed.hostname==="commons.wikimedia.org"
+    ))return parsed.href;
+  }catch(_){}
+  return null;
+}
+async function findWikipediaPoster(movie){
+  const key=posterKey(movie);
+  if(!key || key.length<3 && key!=="dc")return null;
+  const page=WIKIPEDIA_PAGES[key];
+  let request;
+  const params=new URLSearchParams({
+    action:"query",format:"json",origin:"*",
+    prop:"pageimages",piprop:"thumbnail",
+    pithumbsize:"640",pilicense:"any"
+  });
+  if(page){
+    params.set("titles",page);
+    request="https://en.wikipedia.org/w/api.php?"+params;
+  }else{
+    const name=movie.title.replace(/\((?:19|20)\d{2}\)/g,"").trim();
+    const year=movie.title.match(/\b(19\d{2}|20\d{2})\b/)?.[1]||"";
+    // Give search enough context to distinguish films from songs/TV entries.
+    params.set("generator","search");
+    params.set("gsrsearch",name+" "+year+" film");
+    params.set("gsrlimit","8");
+    request="https://en.wikipedia.org/w/api.php?"+params;
+  }
+  const response=await fetch(request,{mode:"cors",credentials:"omit"});
+  if(!response.ok)throw Error("Poster lookup failed");
+  const result=await response.json();
+  const pages=Object.values(result?.query?.pages||{}).filter(p=>p.thumbnail?.source);
+  if(page)return wikipediaPosterUrl(pages.find(p=>p.title.toLowerCase()===page.toLowerCase())?.thumbnail?.source||
+    pages[0]?.thumbnail?.source);
+  const norm=(s)=>s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]/g,"");
+  const wanted=norm(movie.title.replace(/\((?:19|20)\d{2}\)/g,""));
+  const year=movie.title.match(/\b(19\d{2}|20\d{2})\b/)?.[1]||"";
+  if(wanted.length<4)return null;
+  const candidates=pages.filter(p=>{
+    const title=norm(p.title);
+    if(!title.startsWith(wanted))return false;
+    const statedYear=p.title.match(/\b(19\d{2}|20\d{2})\b/)?.[1];
+    if(year && statedYear && year!==statedYear)return false;
+    return /film|movie|\b(?:19|20)\d{2}\b/i.test(p.title);
+  });
+  candidates.sort((a,b)=>{
+    const ay=year && a.title.includes(year)?1:0;
+    const by=year && b.title.includes(year)?1:0;
+    return by-ay;
+  });
+  return wikipediaPosterUrl(candidates[0]?.thumbnail?.source);
+}
+function lookupPoster(movie){
+  if(movie?.localPosterUrl)return Promise.resolve(movie.localPosterUrl);
+  const key=(movie?.title||"").toLowerCase();
+  if(!posterLookupCache.has(key)){
+    posterLookupCache.set(key,findWikipediaPoster(movie).catch(()=>null));
+  }
+  return posterLookupCache.get(key);
 }
 function setPoster(img,movie){
+  // Local artwork in the private Supabase bucket always takes precedence.
+  // A curated poster covers known films; Wikipedia helps new ones.
   const source=coverUrl(movie);
-  img.onerror=()=>{img.onerror=null;img.src="./cinema-night.svg";};
+  const isFeature=img.id==="featurePoster";
+  img.onload=()=>{
+    if(isFeature && state.movies[0]?.path===movie?.path){
+      $("featureBackdrop").style.backgroundImage="url("+JSON.stringify(img.src)+")";
+    }
+  };
+  img.onerror=()=>{
+    img.onerror=null;
+    if(source===FALLBACK_POSTER){return;}
+    // If a hotlinked image goes away, try a different verified source.
+    if(movie && !movie.localPosterUrl){
+      lookupPoster(movie).then(found=>{
+        if(!img.isConnected)return;
+        if(found && found!==img.src){img.onerror=()=>{img.onerror=null;img.src=FALLBACK_POSTER;};img.src=found;}
+        else img.src=FALLBACK_POSTER;
+      });
+    }else img.src=FALLBACK_POSTER;
+  };
   img.src=source;
 }
 function makeMovieImage(movie){
   const img=document.createElement("img");
   img.loading="lazy";img.decoding="async";
   img.alt=movie.title+" poster";
+  img.dataset.posterPath=movie.path;
   setPoster(img,movie);
   return img;
+}
+function refreshResolvedPosters(){
+  for(const img of document.querySelectorAll("[data-poster-path]")){
+    const movie=state.movies.find(m=>m.path===img.dataset.posterPath);
+    if(movie)setPoster(img,movie);
+  }
+  if(state.movies[0])setPoster($("featurePoster"),state.movies[0]);
+}
+function loadAutomaticPosters(movies){
+  for(const movie of movies){
+    if(movie.localPosterUrl || CURATED_POSTERS[posterKey(movie)])continue;
+    lookupPoster(movie).then(url=>{
+      if(!url || !state.movies.some(m=>m.path===movie.path))return;
+      movie.posterUrl=url;
+      refreshResolvedPosters();
+    });
+  }
 }
 function currentMovie(){
   const path=state.room?.library_path;
@@ -86,7 +208,21 @@ async function readMovies(){
     const prior=byTitle.get(key);
     if(!prior||prior.mkv&&!movie.mkv)byTitle.set(key,movie);
   }
-  return [...byTitle.values()].sort((a,b)=>a.title.localeCompare(b.title));
+  const movies=[...byTitle.values()].sort((a,b)=>a.title.localeCompare(b.title));
+  const imageNames=new Set((data||[]).filter(f=>f.id&&/\.(jpe?g|png|webp)$/i.test(f.name||""))
+    .map(f=>f.name));
+  await Promise.all(movies.map(async movie=>{
+    const base=movie.path.replace(/\.(mp4|webm|mkv)$/i,"");
+    const candidates=[".poster.jpg",".poster.jpeg",".poster.png",".poster.webp",
+      ".jpg",".jpeg",".png",".webp"];
+    const match=candidates.map(ext=>base+ext).find(name=>imageNames.has(name));
+    if(!match)return;
+    const {data:signed,error:signError}=await db.storage.from(BUCKET).createSignedUrl(match,21600);
+    if(!signError && signed?.signedUrl){
+      movie.localPosterUrl=signed.signedUrl;movie.posterUrl=signed.signedUrl;
+    }
+  }));
+  return movies;
 }
 async function refreshMovies(){
   try{
@@ -94,6 +230,7 @@ async function refreshMovies(){
     state.movies=movies;
     renderHome(movies);
     renderWatchShelf(movies);
+    loadAutomaticPosters(movies);
     if(state.room?.library_path)updatePlayingTitle();
     return movies;
   }catch(err){
@@ -131,7 +268,7 @@ function renderHome(movies){
   $("featureDescription").textContent=featured
     ?"A good film is better together.":"Our library is ready for its first movie.";
   setPoster($("featurePoster"),featured);
-  $("featureBackdrop").style.backgroundImage="url("+JSON.stringify(coverUrl(featured))+")";
+  $("featureBackdrop").style.backgroundImage="url("+JSON.stringify(FALLBACK_POSTER)+")";
   $("watchTogetherBtn").disabled=!featured;
 }
 function renderWatchShelf(movies){
