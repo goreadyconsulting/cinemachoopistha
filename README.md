@@ -35,7 +35,7 @@ WebVTT subtitle sidecar files may be uploaded with the same base filename and a 
 - One shared room; no invite codes, manual room creation, or upload UI
 - Responsive theatre, native fullscreen, optional picture-in-picture, subtitles, loading indicators
 - Synchronized 10-second skip forward/backward buttons; skipping works even when paused
-- Private two-person live chat, with persistent message history and a mobile chat drawer
+- Private two-person live chat with a compact, collapsible bottom-right chat window on all devices
 - Shared playback state and resume position with local volume controls
 - Presence indicators for Kittu and Subbu
 
@@ -56,3 +56,11 @@ SQL migrations already applied in the live Supabase project are stored in \`supa
 - The UI loads the 100 latest messages when joining and keeps a bounded in-browser list
 
 The \`skip_cinema_seconds\` RPC serializes updates to the one shared room so 10-second skips are consistent for both viewers. The current play/pause state is preserved.
+
+## Startup and layout
+
+- A purple/lavender split-color heart is rendered immediately during startup.
+- Previously PIN-verified guest sessions bypass the profile chooser when still valid.
+- Refreshing while in the cinema restores the watch screen in the same browser tab; autoplay with sound may still require a tap.
+- Without a verified session, the page shows the Kittu/Subbu profile chooser after the heart loader.
+- Chat starts minimized as a floating bottom-right button; it opens into a compact window with a collapse control and unread message count.

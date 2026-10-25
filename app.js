@@ -19,8 +19,9 @@ function inform(message){
   toastTimer=setTimeout(()=>$("toast").hidden=true,4400);
 }
 function show(view){
-  for(const id of ["loginView","homeView","watchView"]) $(id).hidden=id!==view;
-  $("topActions").hidden=view==="loginView";
+  for(const id of ["loadingView","loginView","homeView","watchView"])
+    $(id).hidden=id!==view;
+  $("topActions").hidden=view==="loginView"||view==="loadingView";
   document.body.dataset.screen=view;
   if(state.persona){
     $("signedInName").textContent=state.persona;
@@ -270,6 +271,7 @@ async function enterCinema(desiredMovie=null){
     if(error)throw error;
     state.room=await fetchRoom(id);
     state.revision=-1;state.sourcePath=null;
+    try{sessionStorage.setItem("cinema-open-watch","1");}catch(_){}
     show("watchView");
     $("connectionText").textContent="Connecting…";
     $("connectionState").classList.remove("connected");
@@ -283,7 +285,7 @@ async function enterCinema(desiredMovie=null){
       await updateSharedPlayback(chosen.path,0,false);
     }
     await applyRoom(state.room);
-    setChatOpen(window.innerWidth>920);
+    setChatOpen(false);
     await loadChatHistory(id);
     await subscribeCinema(id);
     await loadNewChat(id);
@@ -295,6 +297,7 @@ async function enterCinema(desiredMovie=null){
   }finally{state.joining=false;btn.disabled=state.movies.length===0;}
 }
 async function leaveCinema(){
+  try{sessionStorage.removeItem("cinema-open-watch");}catch(_){}
   setChatOpen(false);
   resetChat();
   const wasThere=!!state.room;
@@ -461,8 +464,8 @@ async function subscribeCinema(id){
 function setChatOpen(open){
   state.chatOpen=!!open;
   $("chatPanel").hidden=!state.chatOpen;
-  $("chatBackdrop").hidden=!state.chatOpen || window.innerWidth>920;
   $("chatToggleBtn").setAttribute("aria-expanded",String(state.chatOpen));
+  $("chatToggleBtn").setAttribute("aria-label",state.chatOpen?"Collapse chat":"Open chat");
   if(state.chatOpen){
     state.chatUnread=0;
     updateUnread();
@@ -627,10 +630,9 @@ function bindEvents(){
   $("refreshWatchBtn").addEventListener("click",refreshMovies);
   $("chatToggleBtn").addEventListener("click",()=>{
     setChatOpen(!state.chatOpen);
-    if(state.chatOpen && window.innerWidth<=920)$("chatInput").focus();
+    if(state.chatOpen)$("chatInput").focus();
   });
   $("chatCloseBtn").addEventListener("click",()=>setChatOpen(false));
-  $("chatBackdrop").addEventListener("click",()=>setChatOpen(false));
   $("chatForm").addEventListener("submit",sendChatMessage);
   $("chatMessages").addEventListener("scroll",()=>{
     const list=$("chatMessages");
@@ -641,9 +643,6 @@ function bindEvents(){
   });
   $("skipBackBtn").addEventListener("click",()=>skipSeconds(-10));
   $("skipForwardBtn").addEventListener("click",()=>skipSeconds(10));
-  window.addEventListener("resize",()=>{
-    if(state.chatOpen)$("chatBackdrop").hidden=window.innerWidth>920;
-  });
   $("playPauseBtn").addEventListener("click",()=>{
     const r=state.room;
     if(!r?.library_path)return;
@@ -745,6 +744,7 @@ function bindEvents(){
 }
 async function boot(){
   bindEvents();
+  show("loadingView");
   const {data:{user},error}=await db.auth.getUser();
   if(error&&error.name!=="AuthSessionMissingError")console.warn(error.message);
   if(!user){show("loginView");return;}
@@ -756,7 +756,14 @@ async function boot(){
   const {error:verificationError}=await db.rpc("get_cinema_status");
   if(verificationError){show("loginView");return;}
   state.user=user;state.persona=alias.persona;
-  show("homeView");
+  // Refreshing mid-movie returns to the same private cinema, not profile selection.
+  let restoreWatch=false;
+  try{restoreWatch=sessionStorage.getItem("cinema-open-watch")==="1";}catch(_){}
+  if(restoreWatch){
+    await refreshMovies();
+    await enterCinema();
+    if(state.room)return;
+  }
   await showHome({release:false});
 }
 boot().catch(err=>{

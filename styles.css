@@ -144,3 +144,41 @@
  .skip-button small{top:22px}
  .theatre:fullscreen .playbar,.theatre:-webkit-full-screen .playbar{flex:0 0 auto}
 }
+
+
+/* Minimal startup experience: visible immediately, before the module and auth restore. */
+.loading-view{position:fixed;inset:0;z-index:999;background:#0a0a0d;display:grid;place-items:center;overflow:hidden}
+.loading-view::before{content:"";position:absolute;width:min(70vw,350px);aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#7d49d31e,transparent 68%);pointer-events:none}
+.loading-heart{width:108px;height:108px;display:grid;place-items:center;animation:heart-breathe 1.65s ease-in-out infinite;filter:drop-shadow(0 10px 28px #a68ce84a)}
+.loading-heart svg{width:94px;height:94px;display:block}
+@keyframes heart-breathe{0%,100%{transform:scale(.94);opacity:.82}50%{transform:scale(1.075);opacity:1}}
+
+/* Floating, collapsible chat. One consistent layout across all devices. */
+.cinema-columns{display:block}
+.cinema-primary{width:100%;min-width:0}
+.chat-widget{position:fixed;right:clamp(14px,2.5vw,30px);bottom:calc(16px + env(safe-area-inset-bottom));z-index:75;display:flex;align-items:flex-end;flex-direction:column;pointer-events:none}
+.chat-widget > *{pointer-events:auto}
+.chat-fab{position:relative;width:58px;height:58px;display:grid;place-items:center;border-radius:50%;border:1px solid #b99beb88;background:linear-gradient(140deg,#8550bc,#59459c);color:#fff;box-shadow:0 10px 32px #000a,0 0 0 1px #ffffff10;font-size:26px;transition:transform .2s,background .2s,box-shadow .2s}
+.chat-fab:hover{transform:translateY(-2px);background:linear-gradient(140deg,#9863d2,#6651b3);box-shadow:0 15px 36px #000b}
+.chat-fab[aria-expanded="true"] .chat-fab-icon{display:none}
+.chat-fab-close{display:none;line-height:1;font-size:30px;font-weight:300}
+.chat-fab[aria-expanded="true"] .chat-fab-close{display:block}
+.chat-widget .chat-unread{position:absolute;top:-4px;right:-4px;display:grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;border:2px solid #121018;background:#ee496d;color:white;font-size:10px;font-weight:800}
+.chat-widget .chat-panel{position:relative;top:auto;bottom:auto;left:auto;right:auto;width:min(360px,calc(100vw - 28px));height:min(480px,calc(100dvh - 120px));min-height:210px;margin-bottom:12px;z-index:auto;border:1px solid #ffffff25;border-radius:18px;background:#17151d;box-shadow:0 22px 65px #000b,0 0 0 1px #0006;display:flex;flex-direction:column;overflow:hidden;padding-bottom:0}
+.chat-widget .chat-head{padding:15px 17px 12px}
+.chat-widget .chat-head h2{font-size:16px}
+.chat-widget .chat-head span{font-size:11px}
+.chat-widget .chat-close{min-width:36px;min-height:36px}
+.chat-widget .chat-messages{padding:14px;overscroll-behavior:contain}
+.chat-widget .chat-form{padding:10px;padding-bottom:max(10px,env(safe-area-inset-bottom))}
+.chat-widget .chat-form input{min-height:43px}
+@media(max-width:650px){
+ .chat-widget{right:12px;bottom:calc(12px + env(safe-area-inset-bottom))}
+ .chat-fab{width:54px;height:54px}
+ .chat-widget .chat-panel{width:min(340px,calc(100vw - 24px));height:min(430px,calc(100dvh - 100px));border-radius:16px}
+}
+@media(max-height:460px) and (orientation:landscape){
+ .chat-widget .chat-panel{height:min(290px,calc(100dvh - 87px));min-height:150px}
+ .chat-fab{height:46px;width:46px}
+}
+@media(prefers-reduced-motion:reduce){.loading-heart{animation:none}.chat-fab{transition:none}}
