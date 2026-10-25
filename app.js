@@ -8,7 +8,8 @@ const $=(id)=>document.getElementById(id);
 const player=$("player");
 const state={ user:null,persona:null,selectedPersona:null,room:null,channel:null,movies:[],status:null,
   sourcePath:null,token:0,revision:-1,scrubbing:false,joining:false,heartbeat:false,
-  pendingPlay:false,subtitleNames:[] };
+  pendingPlay:false,subtitleNames:[],chatOpen:false,chatUnread:0,chatLastId:0,
+  chatSeenIds:new Set(),chatSending:false,chatLoading:false,skipBusy:false };
 let toastTimer=null;
 
 function inform(message){
@@ -282,7 +283,10 @@ async function enterCinema(desiredMovie=null){
       await updateSharedPlayback(chosen.path,0,false);
     }
     await applyRoom(state.room);
+    setChatOpen(window.innerWidth>920);
+    await loadChatHistory(id);
     await subscribeCinema(id);
+    await loadNewChat(id);
     await readStatus().catch(()=>{});
   }catch(err){
     inform(err?.message||"Couldn't open the cinema.");
@@ -291,6 +295,8 @@ async function enterCinema(desiredMovie=null){
   }finally{state.joining=false;btn.disabled=state.movies.length===0;}
 }
 async function leaveCinema(){
+  setChatOpen(false);
+  resetChat();
   const wasThere=!!state.room;
   ++state.token;
   if(state.channel){
@@ -339,6 +345,8 @@ async function applyRoom(incoming){
   updatePlayingTitle();
   const path=incoming.library_path;
   $("playPauseBtn").disabled=!path;
+  $("skipBackBtn").disabled=!path || state.skipBusy;
+  $("skipForwardBtn").disabled=!path || state.skipBusy;
   $("seekBar").disabled=!path;
   $("playPauseBtn").textContent=incoming.is_playing?"Ⅱ":"▶";
   $("playPauseBtn").setAttribute("aria-label",incoming.is_playing?"Pause movie":"Play movie");
@@ -425,6 +433,8 @@ async function subscribeCinema(id){
   channel
     .on("postgres_changes",{event:"UPDATE",schema:"public",table:"watch_rooms",filter:"id=eq."+id},
       ({new:incoming})=>applyRoom(incoming).catch(console.error))
+    .on("postgres_changes",{event:"INSERT",schema:"public",table:"watch_chat_messages",filter:"room_id=eq."+id},
+      ({new:message})=>{if(state.room?.id===id)appendChatMessage(message);})
     .on("presence",{event:"sync"},()=>{
       const found=new Map();
       Object.values(channel.presenceState()||{}).flat().forEach(p=>{if(p.persona)found.set(p.persona,p)});
@@ -438,6 +448,7 @@ async function subscribeCinema(id){
       $("connectionState").classList.add("connected");
       $("connectionText").textContent="In sync";
       try{await applyRoom(await fetchRoom(id));}catch(err){console.warn(err);}
+      loadNewChat(id).catch(err=>console.warn("Chat refresh:",err));
     }else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"){
       $("connectionState").classList.remove("connected");
       $("connectionText").textContent="Reconnecting…";
@@ -445,6 +456,143 @@ async function subscribeCinema(id){
     }
   });
 }
+
+// One chat per persistent room. History and incoming messages use the same RLS-protected table.
+function setChatOpen(open){
+  state.chatOpen=!!open;
+  $("chatPanel").hidden=!state.chatOpen;
+  $("chatBackdrop").hidden=!state.chatOpen || window.innerWidth>920;
+  $("chatToggleBtn").setAttribute("aria-expanded",String(state.chatOpen));
+  if(state.chatOpen){
+    state.chatUnread=0;
+    updateUnread();
+    const list=$("chatMessages");
+    requestAnimationFrame(()=>{list.scrollTop=list.scrollHeight;});
+  }
+}
+function updateUnread(){
+  const pill=$("chatUnread");
+  pill.hidden=!state.chatUnread;
+  pill.textContent=state.chatUnread>99?"99+":String(state.chatUnread);
+}
+function resetChat(){
+  state.chatSeenIds.clear();
+  state.chatLastId=0;
+  state.chatUnread=0;
+  state.chatLoading=false;
+  state.chatSending=false;
+  $("chatInput").value="";
+  $("chatSendBtn").disabled=false;
+  $("chatMessages").replaceChildren();
+  const empty=document.createElement("p");
+  empty.className="chat-empty";
+  empty.textContent="Say hello ♡";
+  $("chatMessages").append(empty);
+  updateUnread();
+}
+function appendChatMessage(message,{initial=false}={}){
+  if(!message||!state.room || message.room_id!==state.room.id)return;
+  const id=Number(message.id);
+  if(!Number.isSafeInteger(id)||state.chatSeenIds.has(id))return;
+  const list=$("chatMessages");
+  const shouldScroll=list.scrollHeight-list.scrollTop-list.clientHeight<85;
+  state.chatSeenIds.add(id);
+  state.chatLastId=Math.max(state.chatLastId,id);
+  list.querySelector(".chat-empty")?.remove();
+  const mine=message.sender_user_id===state.user?.id;
+  const item=document.createElement("div");
+  item.className="chat-message "+(mine?"mine":"theirs");
+  item.dataset.id=String(id);
+  const label=document.createElement("span");
+  label.className="chat-message-label";
+  const time=new Date(message.created_at).toLocaleTimeString([],{
+    hour:"numeric",minute:"2-digit"
+  });
+  label.textContent=(mine?"You":message.sender_persona||"Guest")+" · "+time;
+  const bubble=document.createElement("div");
+  bubble.className="chat-bubble";
+  bubble.textContent=String(message.body||"");
+  item.append(label,bubble);
+  list.append(item);
+  if(list.children.length>150){
+    const oldest=list.firstElementChild;
+    if(oldest?.dataset?.id)state.chatSeenIds.delete(Number(oldest.dataset.id));
+    oldest?.remove();
+  }
+  if(!initial && !mine && (!state.chatOpen||!shouldScroll)){
+    state.chatUnread++;
+    updateUnread();
+  }
+  if(initial||shouldScroll){
+    requestAnimationFrame(()=>{if(item.isConnected)list.scrollTop=list.scrollHeight;});
+  }
+}
+async function loadChatHistory(roomId){
+  if(!state.room || state.room.id!==roomId)return;
+  const {data,error}=await db.from("watch_chat_messages")
+    .select("id,room_id,sender_user_id,sender_persona,body,created_at")
+    .eq("room_id",roomId).order("id",{ascending:false}).limit(100);
+  if(error){inform("Chat couldn't load. "+error.message);return;}
+  if(state.room?.id!==roomId)return;
+  for(const message of (data||[]).reverse())appendChatMessage(message,{initial:true});
+}
+async function loadNewChat(roomId){
+  if(!state.room || state.room.id!==roomId || state.chatLoading)return;
+  state.chatLoading=true;
+  try{
+    const {data,error}=await db.from("watch_chat_messages")
+      .select("id,room_id,sender_user_id,sender_persona,body,created_at")
+      .eq("room_id",roomId).gt("id",state.chatLastId).order("id",{ascending:true}).limit(100);
+    if(error)throw error;
+    if(state.room?.id!==roomId)return;
+    for(const message of data||[])appendChatMessage(message);
+  }finally{state.chatLoading=false;}
+}
+async function sendChatMessage(event){
+  event.preventDefault();
+  if(state.chatSending||!state.room)return;
+  const roomId=state.room.id;
+  const message=$("chatInput").value.trim();
+  if(!message||message.length>500)return;
+  state.chatSending=true;
+  $("chatSendBtn").disabled=true;
+  try{
+    const {error}=await db.rpc("send_cinema_chat",{
+      p_room_id:roomId,p_message:message
+    });
+    if(error)throw error;
+    if(state.room?.id===roomId){
+      $("chatInput").value="";
+      await loadNewChat(roomId);
+      $("chatInput").focus();
+    }
+  }catch(err){inform(err?.message||"Couldn't send message.");}
+  finally{state.chatSending=false;$("chatSendBtn").disabled=false;}
+}
+async function skipSeconds(delta){
+  if(state.skipBusy||!state.room?.library_path)return;
+  const roomId=state.room.id;
+  state.skipBusy=true;
+  $("skipBackBtn").disabled=true;
+  $("skipForwardBtn").disabled=true;
+  try{
+    const duration=Number.isFinite(player.duration)&&player.duration>0
+      ? player.duration : null;
+    const {error}=await db.rpc("skip_cinema_seconds",{
+      p_delta:delta,p_duration:duration
+    });
+    if(error)throw error;
+    const fresh=await fetchRoom(roomId);
+    if(state.room?.id===roomId)await applyRoom(fresh);
+  }catch(err){inform(err?.message||"Couldn't move playback.");}
+  finally{
+    state.skipBusy=false;
+    const enabled=!!state.room?.library_path;
+    $("skipBackBtn").disabled=!enabled;
+    $("skipForwardBtn").disabled=!enabled;
+  }
+}
+
 async function keepWatching(){
   if(!state.room||state.heartbeat)return;
   state.heartbeat=true;
@@ -477,6 +625,25 @@ function bindEvents(){
   $("backHomeBtn").addEventListener("click",()=>showHome().catch(err=>inform(err.message)));
   $("refreshLibraryBtn").addEventListener("click",refreshMovies);
   $("refreshWatchBtn").addEventListener("click",refreshMovies);
+  $("chatToggleBtn").addEventListener("click",()=>{
+    setChatOpen(!state.chatOpen);
+    if(state.chatOpen && window.innerWidth<=920)$("chatInput").focus();
+  });
+  $("chatCloseBtn").addEventListener("click",()=>setChatOpen(false));
+  $("chatBackdrop").addEventListener("click",()=>setChatOpen(false));
+  $("chatForm").addEventListener("submit",sendChatMessage);
+  $("chatMessages").addEventListener("scroll",()=>{
+    const list=$("chatMessages");
+    if(state.chatOpen && list.scrollHeight-list.scrollTop-list.clientHeight<45){
+      state.chatUnread=0;
+      updateUnread();
+    }
+  });
+  $("skipBackBtn").addEventListener("click",()=>skipSeconds(-10));
+  $("skipForwardBtn").addEventListener("click",()=>skipSeconds(10));
+  window.addEventListener("resize",()=>{
+    if(state.chatOpen)$("chatBackdrop").hidden=window.innerWidth>920;
+  });
   $("playPauseBtn").addEventListener("click",()=>{
     const r=state.room;
     if(!r?.library_path)return;
@@ -550,6 +717,10 @@ function bindEvents(){
   setInterval(()=>{
     if(!$("watchView").hidden)keepWatching();
   },25000);
+  setInterval(()=>{
+    if(!$("watchView").hidden && state.room)
+      loadNewChat(state.room.id).catch(err=>console.warn("Chat reconnect:",err));
+  },6000);
   setInterval(async()=>{
     if(!$("watchView").hidden && state.room){
       try{

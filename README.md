@@ -9,7 +9,8 @@ A simple streaming room for two people, powered by Supabase and hosted on GitHub
 1. Choose **Kittu** or **Subbu**.
 2. Enter that profile's private four-digit PIN.
 3. Browse the films in the **Movies** shelf and choose **Watch Together**.
-4. Both people join the same persistent room. Play, pause, and seek are synchronized.
+4. Both people join the same persistent room. Play, pause, seek, and the **−10s / +10s** buttons are synchronized.
+5. Open **Chat** beside the player to message each other while watching. On phones and tablets, Chat opens as a closeable bottom sheet.
 
 **PINs are not in this repository.** They are verified on the Supabase server against bcrypt hashes stored in the non-exposed \`private.watch_pin_codes\` table. Repeated incorrect attempts are temporarily blocked per anonymous session. The previous guest-label-only login function is disabled, and room/database/storage read operations require a PIN-verified session.
 
@@ -33,6 +34,8 @@ WebVTT subtitle sidecar files may be uploaded with the same base filename and a 
 - One film feature, one real movie shelf, no placeholder movie categories
 - One shared room; no invite codes, manual room creation, or upload UI
 - Responsive theatre, native fullscreen, optional picture-in-picture, subtitles, loading indicators
+- Synchronized 10-second skip forward/backward buttons; skipping works even when paused
+- Private two-person live chat, with persistent message history and a mobile chat drawer
 - Shared playback state and resume position with local volume controls
 - Presence indicators for Kittu and Subbu
 
@@ -41,3 +44,15 @@ WebVTT subtitle sidecar files may be uploaded with the same base filename and a 
 Supabase Storage, Auth (anonymous users), Postgres RPCs and policies, and Realtime. Frontend files are static HTML, CSS, and JavaScript. GitHub Pages deploys from \`main\` at the repository root.
 
 SQL migrations already applied in the live Supabase project are stored in \`supabase/migrations\`. PIN **setup values are intentionally not stored in migrations**.
+
+
+## Private in-room chat
+
+- Supabase table: \`public.watch_chat_messages\`, with RLS requiring active PIN-verified membership in the cinema room
+- Chat sender identity comes from the server-side verified profile (Kittu or Subbu), never a user-entered field
+- Writing requires the \`send_cinema_chat\` RPC; no direct client INSERT privilege
+- Messages are stored persistently, limited to 500 characters, and rate-limited to 1 per second per viewer
+- New messages flow via Supabase Realtime Postgres Changes, with a 6-second polling fallback
+- The UI loads the 100 latest messages when joining and keeps a bounded in-browser list
+
+The \`skip_cinema_seconds\` RPC serializes updates to the one shared room so 10-second skips are consistent for both viewers. The current play/pause state is preserved.
