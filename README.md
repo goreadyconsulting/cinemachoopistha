@@ -1,69 +1,49 @@
-# Cinema Choopistha — our little movie universe
+# Cinema Choopistha
 
-A cinematic, couple-focused streaming experience for Kittu & Subbu, with a **Supabase Storage movie library**, custom artwork, Netflix-inspired home screen and synchronized two-person watch rooms.
+A minimal private watch-together app for **Kittu and Subbu**, hosted on GitHub Pages and backed by Supabase.
 
-- Site: https://goreadyconsulting.github.io/cinemachoopistha/
-- Supabase project: https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau
+**Site:** https://goreadyconsulting.github.io/cinemachoopistha/
 
-## Enter the cinema
+## How to use
 
-Choose **Kittu** or **Subbu** on the login screen. These are the only allowed profile names. Each private screening room supports **one active Kittu and one active Subbu**. Each active seat is kept alive while in the room and expires after 90 seconds of inactivity.
+1. Choose **Kittu** or **Subbu**. Each browser gets an anonymous Supabase session tied to the selected name.
+2. The homepage shows your actual films from the private **cinema-library** Storage bucket. There are no sample movie cards.
+3. Press **Watch together** (or choose a film). The app joins one persistent shared room; no room creation or invite codes.
+4. The other person opens the same URL and presses **Join Kittu / Join Subbu**.
+5. Video selection, play, pause, and seek are synchronized. Volume and picture-in-picture are local. Native fullscreen includes the controls.
 
-**Important security note:** These are **name-only profiles, not password-protected accounts**. Anyone who knows the website can select either name. Browser-local Supabase anonymous sessions provide database identities, but do not prove a real person's identity. Do not store movies that must be protected from anyone who can access this site. Password/PIN verification can be added if desired.
+Your shared room and prior movie progress are preserved in Supabase. Leaving the room pauses playback when both people are gone. Stale playing sessions are also stopped upon the next entrance based on the last guest heartbeat.
 
-Anonymous Sign-ins must be enabled in Supabase Authentication → Sign In / Providers.
+## Where films live
 
-## Add a movie — directly from Supabase
+Upload films directly to **Supabase Storage → cinema-library**, at bucket root. The website never uploads a movie.
 
-1. Go to [Supabase Storage](https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/storage/buckets).
-2. Open the private **cinema-library** bucket.
-3. Click **Upload file** and select a movie. **Upload in the bucket root**, not inside a folder.
-4. Go to the Cinema Choopistha website. The film appears in the **Shared movie library** or **Movie library** sidebar after clicking **Refresh**.
-5. Enter a room, click the movie to select it, then play/pause/seek. Both viewers share controls.
+https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/storage/buckets
 
-Dashboard uploads are not permitted from the website. Users may only list/stream movies after selecting a profile. The separate legacy \`watch-videos\` bucket (used by earlier room uploads) is preserved.
+The global and bucket file-size limits must accommodate your movie. The library automatically prefers **MP4 over MKV** when two files have the same parsed movie title.
 
-The cinema-library bucket accepts files up to **5 GiB**. Ensure Supabase **Storage → Settings → Global file size limit** is also set high enough for your movie. Large file uploads may be more reliable using Supabase's TUS resumable upload protocol.
+The site uses an external promotional poster for Ante Sundaraniki, with a bundled SVG fallback when offline or the poster host is unavailable. Other titles use the bundled fallback until custom poster metadata is added.
 
-## Your MKV movie
+### Conversion
 
-**MKV can be uploaded to the library**, but HTML5 video does not reliably play Matroska in common browsers. The movie appears in the library with a compatibility warning. Converting the container to MP4 before uploading is the most reliable route.
+Some browsers do not play MKV/HEVC. For best cross-device playback, encode **MP4 with H.264 video and AAC audio**, using same-as-source resolution and frame rate. Keep the original MKV.
 
-If the MKV already contains H.264 video, try a remux (fast, usually no video re-encoding):
+Optional WebVTT subtitle files can sit next to the MP4 using matching names (e.g., \`Movie.2022.mp4\` and \`Movie.2022.en.vtt\`). When present the player offers a CC toggle.
 
-\`\`\`bash
-ffmpeg -i "input.mkv" -map 0:v:0 -map 0:a:0? -c:v copy -c:a aac -movflags +faststart "movie.mp4"
-\`\`\`
+## Architecture
 
-If the original video codec is HEVC/H.265 or incompatible with a viewer's browser, convert the video to H.264:
+- Supabase Auth: anonymous sign-ins; only two profile labels are offered.
+- Supabase Storage: private \`cinema-library\` bucket. Signed URLs stream video.
+- Database: the singleton \`cinema_home\` references an existing watch room. \`enter_shared_cinema\`, \`get_cinema_status\`, and \`leave_shared_cinema\` are membership-controlled RPCs.
+- Supabase Realtime: room state update feed + private Presence, with polling fallback.
+- Frontend: static HTML/CSS/JavaScript; responsive mobile/tablet/desktop, reduced-motion support.
 
-\`\`\`bash
-ffmpeg -i "input.mkv" -map 0:v:0 -map 0:a:0? -c:v libx264 -preset medium -crf 22 -c:a aac -b:a 192k -movflags +faststart "movie.mp4"
-\`\`\`
+**Security note:** The names Kittu and Subbu are **not authenticated identities**. Anyone with the website link can select either label. Anonymous Supabase Auth supplies session identity for database permissions, not proof of which person is using the website. Add PINs or real sign-in before treating this as private from others.
 
-The \`-map 0:a:0?\` is optional when no audio stream exists. Conversion can require significant CPU time and disk space. Ensure you have the rights to share the file.
+**Content:** Share only movies you have the rights to stream to the other viewer. The app does not bypass DRM.
 
-## How playback works
+## Deployment
 
-- The browser lists movie objects in Supabase Storage directly (no manual metadata table).
-- Movies are stored in a private bucket; viewers obtain signed 6-hour URLs.
-- Changing video, playing, pausing, or seeking updates a server-validated room state.
-- Realtime Postgres Changes and Presence share room state and online users.
-- Browsers may block sound autoplay; use the **Tap to play on this device** button.
-- This is a static GitHub Pages app. It does not transcode media or bypass DRM.
+GitHub Pages: branch \`main\` / root. Changes to \`index.html\`, \`styles.css\`, \`app.js\`, or \`cinema-night.svg\` deploy automatically. \`config.js\` holds only a publishable Supabase key (never service-role keys).
 
-## Applied database migrations
-
-See \`supabase/migrations/\` for the SQL already applied to the project's database.
-
-## Frontend design (October 2026)
-
-- Profile chooser: two illustrated cards for Kittu and Subbu
-- Cinematic feature banner: displays the first movie in Supabase Storage, with no dummy movie listing
-- Netflix-inspired collection shelf: cards derived from actual movie objects in `cinema-library`
-- Human-readable movie titles parsed from filenames (for example, `Ante.Sundaraniki.2022.1080p....mkv` becomes **Ante Sundaraniki (2022)**)
-- If MKV and MP4 of the same named movie are both present, MP4 is preferred
-- Featured play and movie cards create a room and prepare the selected film
-- Watch page retains room playback synchronization and private member presence
-- Artwork is an original SVG visual fallback, not an official film poster
-- No movie-upload buttons on the website
+Applied migration files are tracked in \`supabase/migrations/\`.

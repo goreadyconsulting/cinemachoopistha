@@ -1,639 +1,547 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0/+esm";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
 
+const db=createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const BUCKET="cinema-library";
+const POSTER_ANTE="https://www.impawards.com/intl/india/2022/posters/ante_sundharaniki_xlg.jpg";
+const $=(id)=>document.getElementById(id);
+const player=$("player");
+const state={ user:null,persona:null,room:null,channel:null,movies:[],status:null,
+  sourcePath:null,token:0,revision:-1,scrubbing:false,joining:false,heartbeat:false,
+  pendingPlay:false,subtitleNames:[] };
+let toastTimer=null;
 
-const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const LIBRARY_BUCKET = "cinema-library";
-let chosenPersona = null;
-let dashboardMovieData = [];
-const $ = (id) => document.getElementById(id);
-const state = { user: null, persona: null, room: null, videos: [], channel: null, sourceVideoId: null, applyToken: 0, scrubbing: false, lastAppliedRevision: -1 };
-let toastTimer = null;
-const player = $("player");
-
-function notify(message) {
-  $("toast").textContent = message;
-  $("toast").hidden = false;
+function inform(message){
+  $("toast").textContent=message;
+  $("toast").hidden=false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4500);
+  toastTimer=setTimeout(()=>$("toast").hidden=true,4400);
 }
-function displayName() {
-  return state.persona || "Guest";
-}
-function avatarUrl(user) { return user?.user_metadata?.avatar_url || ""; }
-function show(view) {
-  ["loginView","dashboardView","roomView"].forEach(id => { $(id).hidden = id !== view; });
-  $("loginBtn").hidden = !!state.user;
-  $("userBar").hidden = !state.user;
-  $("topNav").hidden = view !== "dashboardView";
-  document.body.dataset.view = view;
-  if (state.persona) {
-    $("dashboardName").textContent = state.persona;
-    $("userAvatarBadge").textContent = state.persona.charAt(0).toUpperCase();
+function show(view){
+  for(const id of ["loginView","homeView","watchView"]) $(id).hidden=id!==view;
+  $("topActions").hidden=view==="loginView";
+  document.body.dataset.screen=view;
+  if(state.persona){
+    $("signedInName").textContent=state.persona;
+    $("switchProfileBtn").textContent=state.persona.charAt(0);
+    $("switchProfileBtn").style.background=state.persona==="Kittu"
+      ?"linear-gradient(145deg,#bd4967,#5b3457)"
+      :"linear-gradient(145deg,#8975b9,#435278)";
   }
+  window.scrollTo({top:0,behavior:"auto"});
 }
-function setBusy(button, busy, label) {
-  button.disabled = busy;
-  if (busy) { button.dataset.before = button.textContent; button.textContent = label; }
-  else if (button.dataset.before) { button.textContent = button.dataset.before; delete button.dataset.before; }
+function formatTime(n){
+  const s=Math.max(0,Math.floor(Number.isFinite(n)?n:0));
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=String(s%60).padStart(2,"0");
+  return h? h+":"+String(m).padStart(2,"0")+":"+sec:m+":"+sec;
 }
-function formatTime(value) {
-  if (!Number.isFinite(value) || value < 0) return "0:00";
-  const s = Math.floor(value);
-  return Math.floor(s / 3600) > 0
-    ? [Math.floor(s / 3600), Math.floor(s % 3600 / 60).toString().padStart(2, "0"), (s % 60).toString().padStart(2, "0")].join(":")
-    : Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+function formatSize(n){
+  const size=Number(n)||0;
+  return size>=1024**3?(size/1024**3).toFixed(1)+" GB":Math.round(size/1024**2)+" MB";
 }
-function expectedPosition(room) {
-  if (!room) return 0;
-  const elapsed = room.is_playing ? Math.max(0, (Date.now() - Date.parse(room.playback_updated_at)) / 1000) : 0;
-  return room.position_seconds + elapsed;
+function fileTitle(name){
+  const clean=name.replace(/\.(mp4|mkv|webm)$/i,"").replace(/[._-]+/g," ").replace(/\s+/g," ").trim();
+  const named=clean.match(/^(.*?)\s+((?:19|20)\d{2})(?:\s|$)/);
+  if(named && named[1].trim())return named[1].trim()+" ("+named[2]+")";
+  return clean.replace(/\s+(1080p|720p|2160p|HEVC|WEB DL|BluRay|x264|x265|DDP5).*$/i,"").trim()||"Untitled movie";
 }
-function safeAvatar(img, url, name) {
-  img.alt = name;
-  if (typeof url === "string" && /^https:\/\/avatars\.githubusercontent\.com\//.test(url)) {
-    img.src = url;
-  } else {
-    img.hidden = true;
-  }
+function coverUrl(movie){
+  return movie && /ante\s*sundaraniki/i.test(movie.title)?POSTER_ANTE:"./cinema-night.svg";
 }
-function routeRoom(id) { history.replaceState({}, "", location.pathname + "?room=" + encodeURIComponent(id)); }
-function clearRoute() { history.replaceState({}, "", location.pathname); }
-function selectPersona(persona) {
-  if (!["Kittu","Subbu"].includes(persona)) return;
-  chosenPersona = persona;
-  $("chooseKittu").setAttribute("aria-pressed", String(persona === "Kittu"));
-  $("chooseSubbu").setAttribute("aria-pressed", String(persona === "Subbu"));
-  $("heroLoginBtn").disabled = false;
-  $("heroLoginBtn").textContent = "Continue as " + persona + " →";
+function setPoster(img,movie){
+  const source=coverUrl(movie);
+  img.onerror=()=>{img.onerror=null;img.src="./cinema-night.svg";};
+  img.src=source;
 }
-async function fetchPersona(userId) {
-  const { data, error } = await db.from("watch_aliases")
-    .select("persona").eq("user_id",userId).maybeSingle();
-  if (error) throw error;
-  return data?.persona || null;
+function makeMovieImage(movie){
+  const img=document.createElement("img");
+  img.loading="lazy";img.decoding="async";
+  img.alt=movie.title+" poster";
+  setPoster(img,movie);
+  return img;
 }
-async function signIn() {
-  if (!chosenPersona) return notify("Select Kittu or Subbu first.");
-  const button = $("heroLoginBtn");
-  if (button.disabled) return;
-  setBusy(button,true,"Entering…");
-  try {
-    let { data: { user } } = await db.auth.getUser();
-    if (!user) {
-      const { data, error } = await db.auth.signInAnonymously();
-      if (error) throw error;
-      user = data.user;
-    }
-    const { data: persona, error: claimError } =
-      await db.rpc("claim_watch_alias",{p_persona:chosenPersona});
-    if (claimError) throw claimError;
-    state.user = user;
-    state.persona = persona;
-    $("userName").textContent = displayName();
-    safeAvatar($("userAvatar"),avatarUrl(user),displayName());
-    const params = new URLSearchParams(location.search);
-    if (params.has("join")) await joinByCode(params.get("join"));
-    else if (params.has("room")) await openRoom(params.get("room"));
-    else await dashboard();
-  } catch(err) {
-    console.error(err);
-    notify(err.message || "Could not enter. Enable Anonymous Sign-ins in Supabase.");
-  } finally {
-    setBusy(button,false);
-  }
+function currentMovie(){
+  const path=state.room?.library_path;
+  if(!path)return null;
+  return state.movies.find(m=>m.path===path)||
+    {path,title:fileTitle(path),size:0,mkv:isMkv(path)};
 }
-async function signOut() {
-  if (state.room) await db.rpc("leave_watch_room",{p_room_id:state.room.id});
-  await leaveRoom();
-  const { error } = await db.auth.signOut();
-  if (error) { notify(error.message); return; }
-  state.user = null; state.persona = null;
-  chosenPersona = null;
-  $("chooseKittu").setAttribute("aria-pressed","false");
-  $("chooseSubbu").setAttribute("aria-pressed","false");
-  $("heroLoginBtn").disabled = true;
-  $("heroLoginBtn").textContent = "Choose your profile →";
-  clearRoute(); show("loginView");
+function wantedPosition(room){
+  if(!room)return 0;
+  const elapsed=room.is_playing?Math.max(0,(Date.now()-Date.parse(room.playback_updated_at))/1000):0;
+  return Math.max(0,Number(room.position_seconds||0)+elapsed);
 }
-async function loadMyRooms() {
-  const { data, error } = await db.from("watch_rooms")
-    .select("id,name,invite_code,created_at,library_path,is_playing")
-    .order("created_at",{ ascending:false });
-  if (error) { notify(error.message); return; }
-  const list = $("roomsList"); list.replaceChildren();
-  if (!data?.length) {
-    const empty = document.createElement("div"); empty.className="muted-panel";
-    empty.textContent="No screenings yet. Your first movie night is one click away.";
-    list.append(empty); return;
-  }
-  data.forEach(room=>{
-    const card=document.createElement("button"); card.type="button";card.className="room-card";
-    const top=document.createElement("div"); top.className="room-card-top";
-    const heart=document.createElement("span");heart.textContent="♡";
-    const arrow=document.createElement("span");arrow.textContent="↗";top.append(heart,arrow);
-    const name=document.createElement("h3");name.textContent=room.name;
-    const subtitle=document.createElement("p");subtitle.textContent=
-      (room.is_playing?"● Playing now":"Private watch room")+" · "+new Date(room.created_at).toLocaleDateString();
-    card.append(top,name,subtitle);
-    card.addEventListener("click",()=>openRoom(room.id));
-    list.append(card);
-  });
-}
-async function dashboard() {
-  await leaveRoom();
-  clearRoute();
-  show("dashboardView");
-  await Promise.all([loadMyRooms(),loadLibraryDashboard()]);
-}
-async function leaveSeat() {
-  if (!state.room) return;
-  const roomId = state.room.id;
-  const { error } = await db.rpc("leave_watch_room", { p_room_id: roomId });
-  if (error) { notify(error.message); return; }
-  await dashboard();
-  notify("You left the room. Your seat is available for another guest.");
-}
-async function keepSeatAlive() {
-  if (!state.room || !state.user) return;
-  const roomId = state.room.id;
-  const invite = state.room.invite_code;
-  const { data: active, error } = await db.rpc("keep_watch_seat", { p_room_id: roomId });
-  if (state.room?.id !== roomId) return;
-  if (!error && active) return;
-  // Recover after device sleep or a briefly interrupted connection.
-  const result = await db.rpc("join_watch_room", { p_code: invite });
-  if (state.room?.id !== roomId) return;
-  if (result.error) {
-    notify(result.error.message || "The room is now full. Your seat expired.");
-    await dashboard();
-  } else {
-    const { data: latest } = await db.from("watch_rooms").select("*").eq("id", roomId).single();
-    if (latest && state.room?.id === roomId) applyPlayback(latest).catch(console.error);
-  }
-}
-async function createRoom(event) {
-  event.preventDefault();
-  const btn = event.submitter || $("createForm").querySelector("button");
-  setBusy(btn, true, "Creating…");
-  try {
-    const { data, error } = await db.rpc("create_watch_room", { p_name: $("roomName").value.trim() });
-    if (error) throw error;
-    $("roomName").value = "";
-    await openRoom(data);
-  } catch (err) { notify(err.message || "Couldn't create room"); }
-  finally { setBusy(btn, false); }
-}
-async function joinByCode(code) {
-  const normalized = String(code || "").trim().toUpperCase();
-  if (!normalized) return;
-  const { data, error } = await db.rpc("join_watch_room", { p_code: normalized });
-  if (error) { notify(error.message); await dashboard(); return; }
-  await openRoom(data);
-}
-async function joinForm(event) {
-  event.preventDefault();
-  const btn = event.submitter || $("joinForm").querySelector("button");
-  setBusy(btn, true, "Joining…");
-  try {
-    await joinByCode($("inviteCode").value);
-    $("inviteCode").value = "";
-  } finally { setBusy(btn, false); }
-}
-async function leaveRoom() {
-  ++state.applyToken;
-  if (state.channel) { await db.removeChannel(state.channel); state.channel = null; }
-  player.pause(); player.removeAttribute("src"); player.load();
-  state.room = null; state.videos = []; state.sourceVideoId = null; state.lastAppliedRevision = -1;
-  $("joinPlaybackBtn").hidden = true;
-}
-async function openRoom(id) {
-  if (!state.user) return;
-  await leaveRoom();
-  let { data, error } = await db.from("watch_rooms").select("*").eq("id", id).single();
-  if (error) {
-    // The previous guest seat may have timed out after leaving the page.
-    const savedInvite = localStorage.getItem("cinemaInvite:" + id);
-    if (savedInvite) {
-      const rejoin = await db.rpc("join_watch_room", { p_code: savedInvite });
-      if (!rejoin.error) {
-        ({ data, error } = await db.from("watch_rooms").select("*").eq("id", id).single());
-      } else notify(rejoin.error.message);
-    }
-  }
-  if (error) { notify("Room unavailable, full, or invite expired. Use a valid invite code."); await dashboard(); return; }
-  localStorage.setItem("cinemaInvite:" + data.id, data.invite_code);
-  state.room = data;
-  routeRoom(data.id); show("roomView");
-  $("currentRoomName").textContent = data.name;
-  $("crumbName").textContent = data.name;
-  $("roomCode").textContent = data.invite_code;
-  await loadVideos();
-  if (!state.room || state.room.id !== id) return;
-  await applyPlayback(data);
-  await subscribeRoom(id);
-}
-const getSelection = (room) =>
-  room?.library_path ? "library:" + room.library_path : (room?.video_id || null);
-const isSupportedMovie = (name) => /\.(mp4|webm|mkv)$/i.test(name || "");
-const isMatroska = (name) => /\.mkv$/i.test(name || "");
-function movieName(filename) {
-  const cleaned=(filename || "Untitled")
-    .replace(/\.(mp4|webm|mkv)$/i,"")
-    .replace(/[_.-]+/g," ").replace(/\s+/g," ").trim();
-  const match=cleaned.match(/^(.*?)\s+((?:19|20)\d{2})(?:\s|$)/);
-  if(match && match[1].trim()) return match[1].trim()+" ("+match[2]+")";
-  return cleaned.replace(/\s+(1080p|720p|2160p|HEVC|WEB DL|BluRay|x264|x265|DDP5).*$/i,"").trim() || "Untitled";
-}
-function formatBytes(value) {
-  const bytes=Number(value)||0;
-  if (bytes>=1024**3) return (bytes/(1024**3)).toFixed(2)+" GB";
-  if (bytes>=1024**2) return (bytes/(1024**2)).toFixed(1)+" MB";
-  return (bytes/1024).toFixed(0)+" KB";
-}
-async function listSharedMovies() {
-  // Read directly from Supabase Storage, not from manually maintained DB rows.
-  const { data, error } = await db.storage.from(LIBRARY_BUCKET)
-    .list("",{limit:100,sortBy:{column:"name",order:"asc"}});
-  if(error) throw error;
-  const entries=(data || []).filter(file=>file.id && isSupportedMovie(file.name))
-    .map(file=>({
-      id:"library:"+file.name,
-      object_path:file.name,
-      bucket:LIBRARY_BUCKET,
-      title:movieName(file.name),
-      file_size:Number(file.metadata?.size || 0),
-      mime_type:file.metadata?.mimetype || "",
-      isMkv:isMatroska(file.name),
-      isLibrary:true
-    }));
-  // A remastered MP4 and its older MKV copy should appear as one movie.
-  const titles=new Map();
-  entries.forEach(movie=>{
+function isMkv(name){return /\.mkv$/i.test(name||"");}
+
+async function readMovies(){
+  const {data,error}=await db.storage.from(BUCKET).list("",{limit:100,sortBy:{column:"name",order:"asc"}});
+  if(error)throw error;
+  const entries=(data||[]).filter(f=>f.id && /\.(mp4|webm|mkv)$/i.test(f.name||""))
+    .map(f=>({path:f.name,title:fileTitle(f.name),size:Number(f.metadata?.size||0),mkv:isMkv(f.name)}));
+  const byTitle=new Map();
+  for(const movie of entries){
     const key=movie.title.toLowerCase();
-    const prior=titles.get(key);
-    if(!prior || (prior.isMkv && !movie.isMkv)) titles.set(key,movie);
-  });
-  return [...titles.values()].sort((a,b)=>a.title.localeCompare(b.title));
+    const prior=byTitle.get(key);
+    if(!prior||prior.mkv&&!movie.mkv)byTitle.set(key,movie);
+  }
+  return [...byTitle.values()].sort((a,b)=>a.title.localeCompare(b.title));
 }
-async function startMovieNight(movie=null) {
-  const button=$("featuredStartBtn");
-  if(button.disabled)return;
-  setBusy(button,true,"Setting up our cinema…");
+async function refreshMovies(){
   try{
-    const name="Our Movie Night";
-    const {data,error}=await db.rpc("create_watch_room",{p_name:name});
-    if(error)throw error;
-    await openRoom(data);
-    if(movie && state.room?.id===data){
-      if(movie.isMkv)notify("MKV might not play in this browser. An H.264/AAC MP4 is recommended.");
-      await sendControl(movie.id,0,false);
-    }
-  }catch(error){notify(error?.message||"Couldn't start our movie night.");}
-  finally{setBusy(button,false);}
+    const movies=await readMovies();
+    state.movies=movies;
+    renderHome(movies);
+    renderWatchShelf(movies);
+    if(state.room?.library_path)updatePlayingTitle();
+    return movies;
+  }catch(err){
+    inform("Couldn't open the movie library. "+(err?.message||"Try refreshing."));
+    $("movieGrid").replaceChildren();
+    const p=document.createElement("p");p.className="empty-library";p.textContent="Movies couldn't load. Try Refresh.";
+    $("movieGrid").append(p);
+    return state.movies;
+  }
 }
-async function loadLibraryDashboard() {
-  const root=$("libraryDashboard");
+function filmCard(movie){
+  const card=document.createElement("button");
+  card.className="movie-card";card.type="button";
+  card.setAttribute("aria-label","Watch "+movie.title);
+  const cover=document.createElement("span");cover.className="movie-card-cover";
+  cover.append(makeMovieImage(movie));
+  const name=document.createElement("span");name.className="movie-title";name.textContent=movie.title;
+  const format=document.createElement("span");format.className="movie-format";
+  format.textContent=movie.mkv?"MKV · may not play":formatSize(movie.size);
+  card.append(cover,name,format);
+  card.addEventListener("click",()=>enterCinema(movie));
+  return card;
+}
+function renderHome(movies){
+  const grid=$("movieGrid");grid.replaceChildren();
+  if(!movies.length){
+    const p=document.createElement("p");p.className="empty-library";
+    p.textContent="No movies in the library yet.";grid.append(p);
+  } else for(const movie of movies)grid.append(filmCard(movie));
+  const featured=movies[0]||null;
+  $("featureTitle").textContent=featured?.title||"Movie night";
+  $("featureMeta").textContent=featured
+    ?(featured.title.match(/\((\d{4})\)/)?.[1]||"Movie")+"  ·  "+formatSize(featured.size)
+    :"Just the two of us";
+  $("featureDescription").textContent=featured
+    ?"A good film is better together.":"Our library is ready for its first movie.";
+  setPoster($("featurePoster"),featured);
+  $("featureBackdrop").style.backgroundImage="url("+JSON.stringify(coverUrl(featured))+")";
+  $("watchTogetherBtn").disabled=!featured;
+}
+function renderWatchShelf(movies){
+  const grid=$("watchMovieGrid");grid.replaceChildren();
+  for(const movie of movies){
+    const item=document.createElement("button");item.className="watch-movie-item";item.type="button";
+    if(movie.path===state.room?.library_path)item.classList.add("selected");
+    item.setAttribute("aria-label","Play "+movie.title);
+    const img=makeMovieImage(movie);
+    const detail=document.createElement("span");detail.textContent=movie.title;
+    if(movie.mkv){
+      const note=document.createElement("small");note.className="movie-mkv";note.textContent=" · MKV";
+      detail.append(note);
+    }
+    item.append(img,detail);
+    item.addEventListener("click",()=>selectMovie(movie));
+    grid.append(item);
+  }
+}
+async function readStatus(){
+  const {data,error}=await db.rpc("get_cinema_status");
+  if(error)throw error;
+  state.status=data;
+  updateHomePresence();
+  if(!$("watchView").hidden)updatePresence(data.active||[]);
+  return data;
+}
+function updateHomePresence(){
+  const s=state.status;
+  const active=s?.active||[];
+  const other=active.find(p=>p!==state.persona);
+  const progress=Number(s?.position_seconds||0);
+  $("watchTogetherText").textContent=other?"Join "+other:
+    progress>30?"Continue watching":"Watch together";
+  $("homePresence").textContent=other?other+" is watching now.":"";
+}
+function updatePresence(names){
+  for(const name of ["Kittu","Subbu"]){
+    const node=$("presence"+name);
+    node.classList.toggle("online",(names||[]).includes(name));
+    node.setAttribute("title",(names||[]).includes(name)?name+" is here":name+" hasn't joined");
+  }
+}
+async function showHome({release=true}={}){
+  if(release && state.room)await leaveCinema();
+  show("homeView");
+  await Promise.all([refreshMovies(),readStatus().catch(err=>inform(err.message))]);
+}
+async function enterPersona(persona){
+  if(state.joining)return;
+  state.joining=true;
+  $("entryMessage").textContent="Opening your cinema…";
+  $("chooseKittu").disabled=true;$("chooseSubbu").disabled=true;
   try {
-    const movies=await listSharedMovies();
-    dashboardMovieData=movies;
-    root.replaceChildren();
-    const featured=movies[0] || null;
-    $("featureTitle").textContent=featured?.title || "Our next movie night";
-    $("featureEyebrow").textContent=featured?"FROM OUR PRIVATE LIBRARY":"WELCOME TO OUR CINEMA";
-    $("featureSubtitle").textContent=featured
-      ? "The best seat in the house is the one next to you. Our next story starts here."
-      : "One film. Two seats. All the moments in between.";
-    $("featureMeta").textContent=featured
-      ? (featured.isMkv?"MKV · browser playback may be unavailable":"Ready for movie night")+(featured.file_size?" · "+formatBytes(featured.file_size):"")
-      : "Our shared collection";
-    $("featuredStartBtn").dataset.movieId=featured?.id||"";
-    $("libraryHint").textContent=featured?.isMkv
-      ? "Your MKV is in the library. Most browsers don't play MKV reliably. Converting to H.264/AAC MP4 is the best option."
-      : "All your movies live in private Supabase Storage. This cinema is for watching, not uploading.";
-    if(!movies.length){
-      const empty=document.createElement("div");empty.className="muted-panel";
-      empty.textContent="It's a blank screen waiting for a story. Once a movie is added to your private Supabase library, it'll appear right here.";
-      root.append(empty);return;
+    let {data:{user}}=await db.auth.getUser();
+    if(!user){
+      const {data,error}=await db.auth.signInAnonymously();
+      if(error)throw error;
+      user=data.user;
     }
-    movies.forEach((movie,index)=>{
-      const card=document.createElement("button");card.type="button";card.className="library-card";
-      card.setAttribute("aria-label","Start a movie night with "+movie.title);
-      const art=document.createElement("div");art.className="library-art";
-      const artIndex=document.createElement("span");artIndex.className="library-art-index";
-      artIndex.textContent=index===0?"FEATURED":"OUR COLLECTION";
-      const title=document.createElement("span");title.className="library-art-label";
-      title.textContent=movie.title;
-      const play=document.createElement("span");play.className="library-art-play";play.textContent="▶";
-      art.append(artIndex,title,play);
-      const body=document.createElement("div");body.className="library-info";
-      const heading=document.createElement("strong");heading.textContent=movie.title;
-      const meta=document.createElement("small");
-      meta.className=movie.isMkv?"warning-format":"ready-format";
-      meta.textContent=(movie.isMkv?"⚠ MKV · may not play":"▶ Ready to watch")+
-        (movie.file_size?" · "+formatBytes(movie.file_size):"");
-      body.append(heading,meta);card.append(art,body);
-      card.addEventListener("click",()=>startMovieNight(movie));
-      root.append(card);
-    });
-  }catch(error){
-    root.replaceChildren();
-    const empty=document.createElement("div");empty.className="muted-panel";
-    empty.textContent="We couldn't load the collection right now. "+(error?.message||"Try refreshing the page.");
-    root.append(empty);
+    const {data:name,error:aliasError}=await db.rpc("claim_watch_alias",{p_persona:persona});
+    if(aliasError)throw aliasError;
+    state.user=user;state.persona=name;
+    $("entryMessage").textContent="";
+    await showHome({release:false});
+  }catch(err){
+    const message=err?.message||"Couldn't enter.";
+    $("entryMessage").textContent=message;
+    inform(message);
+  }finally{
+    $("chooseKittu").disabled=false;$("chooseSubbu").disabled=false;
+    state.joining=false;
   }
 }
-async function loadVideos() {
+async function switchProfile(){
+  if(state.room)await leaveCinema();
+  const {error}=await db.auth.signOut();
+  if(error){inform(error.message);return;}
+  state.user=null;state.persona=null;state.status=null;
+  show("loginView");$("entryMessage").textContent="";
+}
+async function fetchRoom(id){
+  const {data,error}=await db.from("watch_rooms").select("*").eq("id",id).single();
+  if(error)throw error;
+  return data;
+}
+async function enterCinema(desiredMovie=null){
+  if(state.joining)return;
+  state.joining=true;
+  const btn=$("watchTogetherBtn");
+  btn.disabled=true;
+  try{
+    const preview=await readStatus();
+    const {data:id,error}=await db.rpc("enter_shared_cinema");
+    if(error)throw error;
+    state.room=await fetchRoom(id);
+    state.revision=-1;state.sourcePath=null;
+    show("watchView");
+    $("connectionText").textContent="Connecting…";
+    $("connectionState").classList.remove("connected");
+    await refreshMovies();
+    const current=state.room.library_path;
+    const chosen=desiredMovie||state.movies.find(m=>m.path===current)||state.movies[0];
+    const someoneElse=(preview.active||[]).some(p=>p!==state.persona);
+    if(chosen && current!==chosen.path && !someoneElse){
+      await updateSharedPlayback(chosen.path,0,false);
+    }else if(chosen && !current){
+      await updateSharedPlayback(chosen.path,0,false);
+    }
+    await applyRoom(state.room);
+    await subscribeCinema(id);
+    await readStatus().catch(()=>{});
+  }catch(err){
+    inform(err?.message||"Couldn't open the cinema.");
+    if(state.room)await leaveCinema();
+    show("homeView");
+  }finally{state.joining=false;btn.disabled=state.movies.length===0;}
+}
+async function leaveCinema(){
+  const wasThere=!!state.room;
+  ++state.token;
+  if(state.channel){
+    const channel=state.channel;state.channel=null;
+    try{await db.removeChannel(channel);}catch(err){console.warn(err);}
+  }
+  player.pause();player.removeAttribute("src");player.load();
+  state.sourcePath=null;state.revision=-1;state.room=null;
+  $("localPlayBtn").hidden=true;$("loadingVideo").hidden=true;
+  if(wasThere){
+    const {error}=await db.rpc("leave_shared_cinema");
+    if(error)console.warn("Could not release seat:",error.message);
+  }
+}
+async function updateSharedPlayback(path,seconds,playing){
   if(!state.room)return;
+  const secondsSafe=Math.max(0,Math.min(864000,Number(seconds)||0));
   const roomId=state.room.id;
-  const [shared,legacy]=await Promise.allSettled([
-    listSharedMovies(),
-    db.from("watch_videos").select("*").eq("room_id",roomId).order("created_at",{ascending:false})
-  ]);
-  if(state.room?.id!==roomId)return;
-  if(shared.status==="rejected")notify("Movie library unavailable: "+shared.reason.message);
-  if(legacy.status==="fulfilled" && legacy.value.error)notify(legacy.value.error.message);
-  const movies=shared.status==="fulfilled" ? shared.value : [];
-  const old=legacy.status==="fulfilled" ? (legacy.value.data || []).map(video=>({
-    ...video,bucket:"watch-videos",isLibrary:false,isMkv:false
-  })) : [];
-  state.videos=[...movies,...old];
-  renderVideos();
-}
-function renderVideos() {
-  const list=$("videosList");list.replaceChildren();
-  $("videoCount").textContent=String(state.videos.length);
-  if(!state.videos.length){
-    const p=document.createElement("p");p.className="muted";
-    p.textContent="No films in our collection yet. Add a movie to Supabase Storage and refresh.";
-    list.append(p);return;
-  }
-  state.videos.forEach((video)=>{
-    const item=document.createElement("button");item.type="button";
-    item.className="video-item"+(getSelection(state.room)===video.id?" selected":"");
-    const icon=document.createElement("span");
-    icon.className="video-item-icon";icon.textContent=video.isMkv?"MKV":"▶";
-    const body=document.createElement("span");body.className="video-item-main";
-    const title=document.createElement("strong");title.textContent=video.title;
-    const info=document.createElement("small");
-    info.textContent=(video.isMkv?"MKV · may not play":video.isLibrary?"Shared library":"Earlier upload")+
-      (video.file_size?" · "+formatBytes(video.file_size):"");
-    body.append(title,info);
-    const arrow=document.createElement("span");arrow.className="play-small";
-    arrow.textContent=getSelection(state.room)===video.id?"●":"↗";
-    item.append(icon,body,arrow);
-    item.addEventListener("click",()=>{
-      if(video.isMkv)notify("MKV playback isn't supported in many browsers. For reliable viewing, convert it to an H.264/AAC MP4.");
-      sendControl(video.id,0,false);
-    });
-    list.append(item);
+  const {error}=await db.rpc("control_watch_library",{
+    p_room_id:roomId,p_object_path:path,p_position:secondsSafe,p_is_playing:Boolean(playing)
   });
+  if(error){inform(error.message);return;}
+  // Read-after-write is also a fallback for Realtime connection delays.
+  const latest=await fetchRoom(roomId);
+  if(state.room?.id===roomId)await applyRoom(latest);
 }
-async function sendControl(videoId, position, playing) {
-  if (!state.room || !videoId) return;
-  const id = state.room.id;
-  const safePosition = Math.min(864000, Math.max(0, Number(position) || 0));
-  const { error } = videoId.startsWith("library:")
-    ? await db.rpc("control_watch_library",{
-      p_room_id:id,p_object_path:videoId.slice(8),p_position:safePosition,p_is_playing:!!playing
-    })
-    : await db.rpc("control_watch_room",{
-      p_room_id:id,p_video_id:videoId,p_position:safePosition,p_is_playing:!!playing
-    });
-  if (error) { notify(error.message); return; }
-  // Read after write as a fallback if the websocket is slow or reconnecting.
-  const { data } = await db.from("watch_rooms").select("*").eq("id", id).single();
-  if (data && state.room?.id === id && data.revision >= state.room.revision) await applyPlayback(data);
+async function selectMovie(movie){
+  if(!state.room)return;
+  if(state.room.library_path===movie.path)return;
+  if(state.room.is_playing && !window.confirm("Change the movie for both of you?"))return;
+  await updateSharedPlayback(movie.path,0,false);
 }
-async function applyPlayback(incoming) {
-  if(!state.room || incoming.id!==state.room.id)return;
-  if(incoming.revision < state.lastAppliedRevision)return;
-  state.room=incoming;
-  state.lastAppliedRevision=incoming.revision;
-  const selection=getSelection(incoming);
-  $("syncStatus").innerHTML='<span class="dot"></span> In sync';
-  $("playPauseBtn").disabled=!selection;
-  $("seekBar").disabled=!selection;
-  renderVideos();
-  if(!selection){
-    $("playerFormatWarning").hidden=true;
-    player.pause();
-    $("playerEmpty").hidden=false;player.hidden=true;
-    $("nowPlayingTitle").textContent="No video selected";
+function updatePlayingTitle(){
+  const movie=currentMovie();
+  $("playingTitle").textContent=movie?.title||fileTitle(state.room?.library_path||"Our cinema");
+  $("playerNote").hidden=!movie?.mkv;
+  $("playerNote").textContent=movie?.mkv
+    ?"This MKV may not play here. An H.264/AAC MP4 works best.":"";
+  renderWatchShelf(state.movies);
+}
+async function applyRoom(incoming){
+  if(!state.room || incoming?.id!==state.room.id)return;
+  if(incoming.revision<state.revision)return;
+  const oldPath=state.room?.library_path;
+  state.room=incoming;state.revision=incoming.revision;
+  updatePlayingTitle();
+  const path=incoming.library_path;
+  $("playPauseBtn").disabled=!path;
+  $("seekBar").disabled=!path;
+  $("playPauseBtn").textContent=incoming.is_playing?"Ⅱ":"▶";
+  $("playPauseBtn").setAttribute("aria-label",incoming.is_playing?"Pause movie":"Play movie");
+  if(!path){
+    player.pause();player.removeAttribute("src");player.load();
+    state.sourcePath=null;
+    $("playerEmpty").hidden=false;
+    $("loadingVideo").hidden=true;
     return;
   }
-  let video=state.videos.find(v=>v.id===selection);
-  if(!video){
-    await loadVideos();
-    video=state.videos.find(v=>v.id===selection);
-    if(!video)return;
-  }
-  $("nowPlayingTitle").textContent=video.title;
-  $("playerFormatWarning").hidden=!video.isMkv;
-  if(video.isMkv && state.sourceVideoId!==selection){
-    notify("MKV detected. Most browsers can't play this format. Convert to MP4 if playback fails.");
-  }
-  $("playerEmpty").hidden=true;player.hidden=false;
-  if(state.sourceVideoId!==selection){
-    const token=++state.applyToken;
-    state.sourceVideoId=selection;
-    player.pause();player.removeAttribute("src");
-    $("joinPlaybackBtn").hidden=true;
-    const {data,error}=await db.storage.from(video.bucket).createSignedUrl(video.object_path,21600);
-    if(token!==state.applyToken || getSelection(state.room)!==selection)return;
-    if(error || !data?.signedUrl){
-      state.sourceVideoId=null;
-      notify(error?.message || "Couldn't load this movie from Supabase");
+  $("playerEmpty").hidden=true;
+  if(path!==state.sourcePath){
+    const token=++state.token;
+    state.sourcePath=path;
+    player.pause();player.removeAttribute("src");player.load();
+    $("localPlayBtn").hidden=true;
+    $("loadingVideo").hidden=false;
+    const {data,error}=await db.storage.from(BUCKET).createSignedUrl(path,21600);
+    if(token!==state.token || state.room?.library_path!==path)return;
+    if(error||!data?.signedUrl){
+      state.sourcePath=null;
+      $("loadingVideo").hidden=true;
+      inform(error?.message||"Couldn't load the movie.");
       return;
     }
     player.src=data.signedUrl;
     player.load();
-    player.addEventListener("loadedmetadata",()=>syncPlayerToRoom(),{once:true});
-  }else syncPlayerToRoom();
-}
-function syncPlayerToRoom(){
-  const room=state.room;
-  if(!getSelection(room) || !player.src || player.readyState<1)return;
-  const duration=Number.isFinite(player.duration)?player.duration:0;
-  const target=Math.min(duration||864000,Math.max(0,expectedPosition(room)));
-  if(Math.abs(player.currentTime-target)>1.25 && !state.scrubbing){
-    try{player.currentTime=target;}catch(_){}
-  }
-  if(room.is_playing && (!duration || target<duration-.15)){
-    const promise=player.play();
-    if(promise && typeof promise.catch==="function"){
-      promise.then(()=>{$("joinPlaybackBtn").hidden=true;})
-        .catch(()=>{$("joinPlaybackBtn").hidden=false;});
+    await attachSubtitles(path,token);
+    if(token===state.token){
+      if(player.readyState>=1)syncPlayback();
+      else player.addEventListener("loadedmetadata",syncPlayback,{once:true});
     }
-  } else {
-    player.pause();$("joinPlaybackBtn").hidden=true;
+  }else if(oldPath===path)syncPlayback();
+}
+async function attachSubtitles(path,token){
+  for(const old of player.querySelectorAll("track"))old.remove();
+  $("captionsBtn").hidden=true;
+  // Optional WebVTT sidecars in the same bucket, e.g. Film.en.vtt or Film.vtt.
+  const base=path.replace(/\.(mp4|mkv|webm)$/i,"");
+  const {data,error}=await db.storage.from(BUCKET).list("",{limit:100});
+  if(error||token!==state.token)return;
+  const tracks=(data||[]).filter(f=>f.id&&(f.name===base+".vtt"||f.name.startsWith(base+".")&&/\.vtt$/i.test(f.name))).slice(0,4);
+  for(let i=0;i<tracks.length;i++){
+    const f=tracks[i];
+    const {data:signed,error:signError}=await db.storage.from(BUCKET).createSignedUrl(f.name,21600);
+    if(signError || !signed?.signedUrl || token!==state.token)continue;
+    const label=f.name.match(/\.([a-z]{2,3})\.vtt$/i)?.[1]||"English";
+    const tr=document.createElement("track");tr.kind="subtitles";
+    tr.label=label.toUpperCase();tr.srclang=/^[a-z]{2,3}$/i.test(label)?label.toLowerCase():"en";
+    tr.src=signed.signedUrl;tr.default=i===0;player.append(tr);
   }
-  $("playPauseBtn").textContent=room.is_playing?"Ⅱ":"▶";
-  $("playPauseBtn").setAttribute("aria-label",room.is_playing?"Pause for everyone":"Play for everyone");
+  $("captionsBtn").hidden=player.querySelectorAll("track").length===0;
+}
+function syncPlayback(){
+  const room=state.room;
+  if(!room?.library_path || !player.src || player.readyState<1)return;
+  const target=wantedPosition(room);
+  const duration=Number.isFinite(player.duration)?player.duration:0;
+  const bounded=Math.max(0,Math.min(duration||864000,target));
+  if(!state.scrubbing && Math.abs(player.currentTime-bounded)>1.5){
+    try{player.currentTime=bounded;}catch(err){console.warn(err);}
+  }
+  if(room.is_playing && (!duration || bounded<duration-.2)){
+    const outcome=player.play();
+    if(outcome?.catch)outcome.then(()=>$("localPlayBtn").hidden=true)
+      .catch(()=>$("localPlayBtn").hidden=false);
+  }else{player.pause();$("localPlayBtn").hidden=true;}
   updateClock();
 }
-
-function updateClock() {
-  const duration = Number.isFinite(player.duration) ? player.duration : 0;
-  const current = Number.isFinite(player.currentTime) ? player.currentTime : 0;
-  if (!state.scrubbing) {
-    $("seekBar").value = duration > 0 ? String(Math.min(1000, current / duration * 1000)) : "0";
-    $("currentTime").textContent = formatTime(current);
+function updateClock(){
+  const length=Number.isFinite(player.duration)?player.duration:0;
+  const position=Number.isFinite(player.currentTime)?player.currentTime:0;
+  if(!state.scrubbing){
+    $("seekBar").value=length?String(Math.max(0,Math.min(1000,position/length*1000))):"0";
+    $("currentTime").textContent=formatTime(position);
   }
-  $("duration").textContent = formatTime(duration);
+  $("duration").textContent=formatTime(length);
 }
-async function subscribeRoom(roomId) {
-  if (!state.user || !state.room || state.room.id !== roomId) return;
-  await db.realtime.setAuth((await db.auth.getSession()).data.session?.access_token);
-  const channel = db.channel("watch:" + roomId, { config: { private: true, presence: { key: state.user.id } } });
+async function subscribeCinema(id){
+  const {data:{session}}=await db.auth.getSession();
+  if(!session?.access_token)throw Error("Guest session expired.");
+  await db.realtime.setAuth(session.access_token);
+  const channel=db.channel("watch:"+id,{config:{private:true,presence:{key:state.user.id}}});
   channel
-    .on("postgres_changes", { event: "UPDATE", schema: "public", table: "watch_rooms", filter: "id=eq." + roomId }, (payload) => {
-      if (payload.new) applyPlayback(payload.new).catch((err) => notify(err.message));
-    })
-    .on("presence", { event: "sync" }, () => renderPresence(channel.presenceState()));
-  state.channel = channel;
-  channel.subscribe(async (status, err) => {
-    if (state.channel !== channel) return;
-    if (status === "SUBSCRIBED") {
-      await channel.track({ userId: state.user.id, name: displayName(), avatar: avatarUrl(state.user) });
-      $("syncStatus").innerHTML = '<span class="dot"></span> In sync';
-      // Refresh state after subscribing to close the fetch/subscribe race.
-      const { data } = await db.from("watch_rooms").select("*").eq("id", roomId).single();
-      if (data && state.room?.id === roomId) applyPlayback(data).catch(console.error);
-    } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-      $("syncStatus").textContent = "Disconnected";
-      notify(err?.message || "Realtime connection failed. Try refreshing.");
+    .on("postgres_changes",{event:"UPDATE",schema:"public",table:"watch_rooms",filter:"id=eq."+id},
+      ({new:incoming})=>applyRoom(incoming).catch(console.error))
+    .on("presence",{event:"sync"},()=>{
+      const found=new Map();
+      Object.values(channel.presenceState()||{}).flat().forEach(p=>{if(p.persona)found.set(p.persona,p)});
+      updatePresence([...found.keys()]);
+    });
+  state.channel=channel;
+  channel.subscribe(async (status,error)=>{
+    if(state.channel!==channel)return;
+    if(status==="SUBSCRIBED"){
+      await channel.track({id:state.user.id,persona:state.persona});
+      $("connectionState").classList.add("connected");
+      $("connectionText").textContent="In sync";
+      try{await applyRoom(await fetchRoom(id));}catch(err){console.warn(err);}
+    }else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"){
+      $("connectionState").classList.remove("connected");
+      $("connectionText").textContent="Reconnecting…";
+      console.warn("Realtime:",error?.message);
     }
   });
 }
-function renderPresence(presences) {
-  const list = $("peopleList"); list.replaceChildren();
-  const map = new Map();
-  Object.values(presences || {}).flat().forEach((person) => { if (person.userId) map.set(person.userId, person); });
-  $("peopleCount").textContent = String(map.size);
-  if (!map.size) { const p = document.createElement("p"); p.className = "muted"; p.textContent = "Nobody online yet."; list.append(p); return; }
-  map.forEach((person) => {
-    const row = document.createElement("div"); row.className = "person";
-    const img = document.createElement("img");
-    const avatar = typeof person.avatar === "string" && /^https:\/\/avatars\.githubusercontent\.com\//.test(person.avatar);
-    if (avatar) { img.src = person.avatar; img.alt = ""; row.append(img); }
-    else { const initial = document.createElement("span"); initial.className = "person-initial"; initial.textContent = (person.name || "?").charAt(0).toUpperCase(); row.append(initial); }
-    const name = document.createElement("span"); name.textContent = String(person.name || "Movie lover").slice(0, 70) + (person.userId === state.user?.id ? " (you)" : "");
-    const indicator = document.createElement("i"); indicator.title = "Online";
-    row.append(name,indicator); list.append(row);
-  });
+async function keepWatching(){
+  if(!state.room||state.heartbeat)return;
+  state.heartbeat=true;
+  try{
+    const {data:alive,error}=await db.rpc("keep_watch_seat",{p_room_id:state.room.id});
+    if(error||!alive){
+      const {error:rejoinError}=await db.rpc("enter_shared_cinema");
+      if(rejoinError)throw rejoinError;
+    }
+  }catch(err){
+    inform(err?.message||"Connection lost. Rejoin to keep watching.");
+    await showHome();
+  }finally{state.heartbeat=false;}
 }
-async function copyText(value) {
-  try { await navigator.clipboard.writeText(value); notify("Copied to clipboard."); }
-  catch (_) { notify("Copy failed. Try using your browser's address bar."); }
+async function updatePresenceFromStatus(){
+  if(!state.user)return;
+  try{await readStatus();}catch(err){console.warn(err);}
 }
-async function boot() {
-  $("loginBtn").addEventListener("click",()=>{
-    show("loginView");
-    $("chooseKittu").focus();
+function bindEvents(){
+  $("chooseKittu").addEventListener("click",()=>enterPersona("Kittu"));
+  $("chooseSubbu").addEventListener("click",()=>enterPersona("Subbu"));
+  $("switchProfileBtn").addEventListener("click",switchProfile);
+  $("homeLogo").addEventListener("click",event=>{
+    event.preventDefault();
+    if(state.user)showHome().catch(err=>inform(err.message));
   });
-  $("chooseKittu").addEventListener("click",()=>selectPersona("Kittu"));
-  $("chooseSubbu").addEventListener("click",()=>selectPersona("Subbu"));
-  $("heroLoginBtn").addEventListener("click", signIn);
-  $("featuredStartBtn").addEventListener("click",()=>{
-    const id=$("featuredStartBtn").dataset.movieId;
-    const movie=dashboardMovieData.find(x=>x.id===id)||null;
-    startMovieNight(movie);
+  $("watchTogetherBtn").addEventListener("click",()=>enterCinema(state.movies[0]||null));
+  $("backHomeBtn").addEventListener("click",()=>showHome().catch(err=>inform(err.message)));
+  $("refreshLibraryBtn").addEventListener("click",refreshMovies);
+  $("refreshWatchBtn").addEventListener("click",refreshMovies);
+  $("playPauseBtn").addEventListener("click",()=>{
+    const r=state.room;
+    if(!r?.library_path)return;
+    if(!r.is_playing)player.play().catch(()=>{});
+    const position=player.readyState>=1?player.currentTime:wantedPosition(r);
+    updateSharedPlayback(r.library_path,position,!r.is_playing).catch(console.error);
   });
-  $("logoutBtn").addEventListener("click", signOut);
-  $("createForm").addEventListener("submit", createRoom);
-  $("joinForm").addEventListener("submit", joinForm);
-  $("refreshRoomsBtn").addEventListener("click", loadMyRooms);
-  $("backBtn").addEventListener("click", dashboard);
-  $("leaveSeatBtn").addEventListener("click", leaveSeat);
-  $("refreshLibraryRoom").addEventListener("click", loadVideos);
-  $("refreshLibraryDashboard").addEventListener("click",loadLibraryDashboard);
-  $("copyInviteBtn").addEventListener("click", () => {
-    if (state.room) copyText(location.origin + location.pathname + "?join=" + encodeURIComponent(state.room.invite_code));
+  $("localPlayBtn").addEventListener("click",()=>{
+    player.play().then(()=>$("localPlayBtn").hidden=true)
+      .catch(()=>inform("Tap Play again once the movie is ready."));
   });
-  $("copyCodeBtn").addEventListener("click", () => { if (state.room) copyText(state.room.invite_code); });
-  $("playPauseBtn").addEventListener("click", () => {
-    const selection=getSelection(state.room);
-    if(!selection)return;
-    if(!state.room.is_playing)player.play().catch(()=>{});
-    sendControl(selection,player.currentTime||expectedPosition(state.room),!state.room.is_playing);
+  $("seekBar").addEventListener("input",e=>{
+    state.scrubbing=true;
+    const d=Number.isFinite(player.duration)?player.duration:0;
+    $("currentTime").textContent=formatTime(d*Number(e.target.value)/1000);
   });
-  $("joinPlaybackBtn").addEventListener("click", () => {
-    player.play().then(() => { $("joinPlaybackBtn").hidden = true; }).catch(() => notify("Playback unavailable on this device."));
-  });
-  $("seekBar").addEventListener("input", (event) => {
-    state.scrubbing = true;
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    $("currentTime").textContent = formatTime(duration * Number(event.target.value) / 1000);
-  });
-  $("seekBar").addEventListener("change", (event) => {
-    const duration = Number.isFinite(player.duration) ? player.duration : 0;
-    const target = duration * Number(event.target.value) / 1000;
-    state.scrubbing = false;
-    const selection=getSelection(state.room);
-    if(selection){
-      player.currentTime=target;
-      sendControl(selection,target,state.room.is_playing);
+  $("seekBar").addEventListener("change",e=>{
+    const d=Number.isFinite(player.duration)?player.duration:0;
+    const pos=d*Number(e.target.value)/1000;
+    state.scrubbing=false;
+    if(state.room?.library_path){
+      if(player.readyState>=1)player.currentTime=pos;
+      updateSharedPlayback(state.room.library_path,pos,state.room.is_playing).catch(console.error);
     }
   });
-  $("muteBtn").addEventListener("click", () => {
-    player.muted = !player.muted;
-    $("muteBtn").textContent = player.muted ? "◖×" : "◖))";
+  $("captionsBtn").addEventListener("click",()=>{
+    const textTracks=Array.from(player.textTracks||[]).filter(t=>t.kind==="subtitles"||t.kind==="captions");
+    if(!textTracks.length)return;
+    const turningOn=textTracks.every(t=>t.mode!=="showing");
+    for(const t of textTracks)t.mode=turningOn?"showing":"disabled";
+    $("captionsBtn").classList.toggle("active",turningOn);
+    $("captionsBtn").setAttribute("aria-pressed",String(turningOn));
   });
-  $("fullscreenBtn").addEventListener("click", () => {
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else $("player").requestFullscreen?.().catch(() => notify("Fullscreen isn't supported here."));
+  $("muteBtn").addEventListener("click",()=>{
+    player.muted=!player.muted;
+    $("muteBtn").textContent=player.muted?"◖×":"◖))";
+    $("muteBtn").setAttribute("aria-label",player.muted?"Unmute":"Mute");
   });
-  player.addEventListener("timeupdate", updateClock);
-  player.addEventListener("loadedmetadata", updateClock);
+  $("fullscreenBtn").addEventListener("click",()=>{
+    if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+    else if($("playerShell").parentElement.requestFullscreen){
+      $("playerShell").parentElement.requestFullscreen().catch(()=>inform("Fullscreen isn't supported here."));
+    }else if(player.webkitEnterFullscreen)player.webkitEnterFullscreen();
+    else inform("Fullscreen isn't available on this device.");
+  });
+  if(!document.pictureInPictureEnabled || !player.requestPictureInPicture)$("pipBtn").hidden=true;
+  $("pipBtn").addEventListener("click",async()=>{
+    try{
+      if(document.pictureInPictureElement)await document.exitPictureInPicture();
+      else await player.requestPictureInPicture();
+    }catch(err){inform("Picture-in-picture isn't available here.");}
+  });
+  player.addEventListener("timeupdate",updateClock);
+  player.addEventListener("loadedmetadata",()=>{$("loadingVideo").hidden=true;syncPlayback();});
+  player.addEventListener("canplay",()=>$("loadingVideo").hidden=true);
+  player.addEventListener("waiting",()=>{if(state.room?.is_playing)$("loadingVideo").hidden=false;});
+  player.addEventListener("playing",()=>$("loadingVideo").hidden=true);
   player.addEventListener("error",()=>{
     if(!player.getAttribute("src"))return;
-    const selection=getSelection(state.room);
-    const video=state.videos.find(v=>v.id===selection);
-    notify(video?.isMkv
-      ? "This MKV cannot play in your browser. Convert it to H.264/AAC MP4 and upload the MP4 to Supabase."
-      : "Unable to play this video. Try an H.264/AAC MP4.");
+    $("loadingVideo").hidden=true;
+    const movie=currentMovie();
+    $("playerNote").hidden=false;
+    $("playerNote").textContent=movie?.mkv
+      ?"This MKV isn't supported by your browser. Use an H.264/AAC MP4."
+      :"This file couldn't play. Try an H.264/AAC MP4.";
   });
-  player.addEventListener("ended", () => {
-    const selection=getSelection(state.room);
-    if(state.room?.is_playing && selection)sendControl(selection,player.duration||0,false);
+  player.addEventListener("ended",()=>{
+    if(state.room?.library_path && state.room.is_playing)
+      updateSharedPlayback(state.room.library_path,player.duration||0,false).catch(console.error);
   });
-  let heartbeatPending = false;
-  setInterval(async () => {
-    if (!state.room || heartbeatPending) return;
-    heartbeatPending = true;
-    try { await keepSeatAlive(); } catch (err) { console.warn("Seat heartbeat failed", err); }
-    finally { heartbeatPending = false; }
-  }, 20000);
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && state.room && !heartbeatPending) {
-      heartbeatPending = true;
-      keepSeatAlive().catch(console.error).finally(() => { heartbeatPending = false; });
+  setInterval(()=>{
+    if(!$("watchView").hidden)keepWatching();
+  },25000);
+  setInterval(async()=>{
+    if(!$("watchView").hidden && state.room){
+      try{
+        const room=await fetchRoom(state.room.id);
+        if(state.room?.id===room.id)await applyRoom(room);
+        if(player.readyState>=1 && state.room?.is_playing &&
+          Math.abs(player.currentTime-wantedPosition(state.room))>3)syncPlayback();
+      }catch(err){console.warn("Cinema check:",err);}
+    }else if(!$("homeView").hidden && state.user){
+      updatePresenceFromStatus();
+    }
+  },7000);
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible"&&!$("watchView").hidden)
+      keepWatching().catch(console.error);
+  });
+  db.auth.onAuthStateChange(event=>{
+    if(event==="SIGNED_OUT" && state.user){
+      state.user=null;state.persona=null;state.room=null;show("loginView");
     }
   });
-  setInterval(() => {
-    if (getSelection(state.room) && document.visibilityState === "visible" && player.readyState >= 1) {
-      // Correct drift, but never send a network write during this local adjustment.
-      const target = expectedPosition(state.room);
-      if (Math.abs(player.currentTime - target) > 2.5) syncPlayerToRoom();
-    }
-  }, 5000);
-  db.auth.onAuthStateChange((event) => {
-    if(event==="SIGNED_OUT"){state.user=null;state.persona=null;show("loginView");}
-  });
-  const { data: { user }, error } = await db.auth.getUser();
-  if (error && error.name !== "AuthSessionMissingError") console.warn(error.message);
-  if(!user){show("loginView");return;}
-  let persona;
-  try{persona=await fetchPersona(user.id);}catch(err){console.error(err);}
-  if(!persona){show("loginView");return;}
-  state.user=user;state.persona=persona;
-  $("userName").textContent=displayName();
-  safeAvatar($("userAvatar"),avatarUrl(user),displayName());
-  show("dashboardView");
-  const params = new URLSearchParams(location.search);
-  if (params.has("join")) await joinByCode(params.get("join"));
-  else if (params.has("room")) await openRoom(params.get("room"));
-  else await Promise.all([loadMyRooms(),loadLibraryDashboard()]);
 }
-boot().catch((err) => notify(err.message || "Something went wrong."));
+async function boot(){
+  bindEvents();
+  const {data:{user},error}=await db.auth.getUser();
+  if(error&&error.name!=="AuthSessionMissingError")console.warn(error.message);
+  if(!user){show("loginView");return;}
+  const {data:alias,error:aliasError}=await db.from("watch_aliases")
+    .select("persona").eq("user_id",user.id).maybeSingle();
+  if(aliasError)console.warn(aliasError.message);
+  if(!alias?.persona){show("loginView");return;}
+  state.user=user;state.persona=alias.persona;
+  show("homeView");
+  await showHome({release:false});
+}
+boot().catch(err=>{
+  inform(err?.message||"Something went wrong.");
+  show("loginView");
+});
