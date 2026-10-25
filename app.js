@@ -22,9 +22,15 @@ function displayName() {
 }
 function avatarUrl(user) { return user?.user_metadata?.avatar_url || ""; }
 function show(view) {
-  ["loginView", "dashboardView", "roomView"].forEach((id) => { $(id).hidden = id !== view; });
+  ["loginView","dashboardView","roomView"].forEach(id => { $(id).hidden = id !== view; });
   $("loginBtn").hidden = !!state.user;
   $("userBar").hidden = !state.user;
+  $("topNav").hidden = view !== "dashboardView";
+  document.body.dataset.view = view;
+  if (state.persona) {
+    $("dashboardName").textContent = state.persona;
+    $("userAvatarBadge").textContent = state.persona.charAt(0).toUpperCase();
+  }
 }
 function setBusy(button, busy, label) {
   button.disabled = busy;
@@ -59,7 +65,7 @@ function selectPersona(persona) {
   $("chooseKittu").setAttribute("aria-pressed", String(persona === "Kittu"));
   $("chooseSubbu").setAttribute("aria-pressed", String(persona === "Subbu"));
   $("heroLoginBtn").disabled = false;
-  $("heroLoginBtn").textContent = "Continue as " + persona + " ↗";
+  $("heroLoginBtn").textContent = "Continue as " + persona + " →";
 }
 async function fetchPersona(userId) {
   const { data, error } = await db.from("watch_aliases")
@@ -107,28 +113,30 @@ async function signOut() {
   $("chooseKittu").setAttribute("aria-pressed","false");
   $("chooseSubbu").setAttribute("aria-pressed","false");
   $("heroLoginBtn").disabled = true;
-  $("heroLoginBtn").textContent = "Choose a profile first ↗";
+  $("heroLoginBtn").textContent = "Choose your profile →";
   clearRoute(); show("loginView");
 }
 async function loadMyRooms() {
-  const { data, error } = await db.from("watch_rooms").select("id,name,invite_code,created_at").order("created_at", { ascending: false });
+  const { data, error } = await db.from("watch_rooms")
+    .select("id,name,invite_code,created_at,library_path,is_playing")
+    .order("created_at",{ ascending:false });
   if (error) { notify(error.message); return; }
-  const list = $("roomsList");
-  list.replaceChildren();
+  const list = $("roomsList"); list.replaceChildren();
   if (!data?.length) {
-    const empty = document.createElement("div");
-    empty.className = "muted-panel";
-    empty.textContent = "No rooms yet. Create one above to start your first screening.";
+    const empty = document.createElement("div"); empty.className="muted-panel";
+    empty.textContent="No screenings yet. Your first movie night is one click away.";
     list.append(empty); return;
   }
-  data.forEach((room) => {
-    const card = document.createElement("button");
-    card.type = "button"; card.className = "room-card";
-    card.innerHTML = '<div class="room-card-icon"><span>▣</span><span>↗</span></div>';
-    const name = document.createElement("h3"); name.textContent = room.name;
-    const date = document.createElement("p"); date.textContent = "Private screening · " + new Date(room.created_at).toLocaleDateString();
-    card.append(name, date);
-    card.addEventListener("click", () => openRoom(room.id));
+  data.forEach(room=>{
+    const card=document.createElement("button"); card.type="button";card.className="room-card";
+    const top=document.createElement("div"); top.className="room-card-top";
+    const heart=document.createElement("span");heart.textContent="♡";
+    const arrow=document.createElement("span");arrow.textContent="↗";top.append(heart,arrow);
+    const name=document.createElement("h3");name.textContent=room.name;
+    const subtitle=document.createElement("p");subtitle.textContent=
+      (room.is_playing?"● Playing now":"Private watch room")+" · "+new Date(room.created_at).toLocaleDateString();
+    card.append(top,name,subtitle);
+    card.addEventListener("click",()=>openRoom(room.id));
     list.append(card);
   });
 }
@@ -230,8 +238,12 @@ const getSelection = (room) =>
 const isSupportedMovie = (name) => /\.(mp4|webm|mkv)$/i.test(name || "");
 const isMatroska = (name) => /\.mkv$/i.test(name || "");
 function movieName(filename) {
-  return (filename || "Untitled").replace(/\.(mp4|webm|mkv)$/i,"")
-    .replace(/[_.-]+/g," ").trim() || "Untitled";
+  const cleaned=(filename || "Untitled")
+    .replace(/\.(mp4|webm|mkv)$/i,"")
+    .replace(/[_.-]+/g," ").replace(/\s+/g," ").trim();
+  const match=cleaned.match(/^(.*?)\s+((?:19|20)\d{2})(?:\s|$)/);
+  if(match && match[1].trim()) return match[1].trim()+" ("+match[2]+")";
+  return cleaned.replace(/\s+(1080p|720p|2160p|HEVC|WEB DL|BluRay|x264|x265|DDP5).*$/i,"").trim() || "Untitled";
 }
 function formatBytes(value) {
   const bytes=Number(value)||0;
@@ -244,8 +256,8 @@ async function listSharedMovies() {
   const { data, error } = await db.storage.from(LIBRARY_BUCKET)
     .list("",{limit:100,sortBy:{column:"name",order:"asc"}});
   if(error) throw error;
-  return (data || []).filter((file)=>file.id && isSupportedMovie(file.name))
-    .map((file)=>({
+  const entries=(data || []).filter(file=>file.id && isSupportedMovie(file.name))
+    .map(file=>({
       id:"library:"+file.name,
       object_path:file.name,
       bucket:LIBRARY_BUCKET,
@@ -255,6 +267,30 @@ async function listSharedMovies() {
       isMkv:isMatroska(file.name),
       isLibrary:true
     }));
+  // A remastered MP4 and its older MKV copy should appear as one movie.
+  const titles=new Map();
+  entries.forEach(movie=>{
+    const key=movie.title.toLowerCase();
+    const prior=titles.get(key);
+    if(!prior || (prior.isMkv && !movie.isMkv)) titles.set(key,movie);
+  });
+  return [...titles.values()].sort((a,b)=>a.title.localeCompare(b.title));
+}
+async function startMovieNight(movie=null) {
+  const button=$("featuredStartBtn");
+  if(button.disabled)return;
+  setBusy(button,true,"Setting up our cinema…");
+  try{
+    const name="Our Movie Night";
+    const {data,error}=await db.rpc("create_watch_room",{p_name:name});
+    if(error)throw error;
+    await openRoom(data);
+    if(movie && state.room?.id===data){
+      if(movie.isMkv)notify("MKV might not play in this browser. An H.264/AAC MP4 is recommended.");
+      await sendControl(movie.id,0,false);
+    }
+  }catch(error){notify(error?.message||"Couldn't start our movie night.");}
+  finally{setBusy(button,false);}
 }
 async function loadLibraryDashboard() {
   const root=$("libraryDashboard");
@@ -262,28 +298,49 @@ async function loadLibraryDashboard() {
     const movies=await listSharedMovies();
     dashboardMovieData=movies;
     root.replaceChildren();
+    const featured=movies[0] || null;
+    $("featureTitle").textContent=featured?.title || "Our next movie night";
+    $("featureEyebrow").textContent=featured?"FROM OUR PRIVATE LIBRARY":"WELCOME TO OUR CINEMA";
+    $("featureSubtitle").textContent=featured
+      ? "The best seat in the house is the one next to you. Our next story starts here."
+      : "One film. Two seats. All the moments in between.";
+    $("featureMeta").textContent=featured
+      ? (featured.isMkv?"MKV · browser playback may be unavailable":"Ready for movie night")+(featured.file_size?" · "+formatBytes(featured.file_size):"")
+      : "Our shared collection";
+    $("featuredStartBtn").dataset.movieId=featured?.id||"";
+    $("libraryHint").textContent=featured?.isMkv
+      ? "Your MKV is in the library. Most browsers don't play MKV reliably. Converting to H.264/AAC MP4 is the best option."
+      : "All your movies live in private Supabase Storage. This cinema is for watching, not uploading.";
     if(!movies.length){
-      const empty=document.createElement("div");
-      empty.className="muted-panel";
-      empty.textContent="Your library is empty. Upload a movie in Supabase Storage → cinema-library, then refresh.";
-      root.append(empty);
-      return;
+      const empty=document.createElement("div");empty.className="muted-panel";
+      empty.textContent="It's a blank screen waiting for a story. Once a movie is added to your private Supabase library, it'll appear right here.";
+      root.append(empty);return;
     }
-    movies.forEach((movie)=>{
-      const card=document.createElement("div");card.className="library-card";
-      const icon=document.createElement("span");icon.className="video-item-icon";icon.textContent="▶";
-      const body=document.createElement("div");
-      const name=document.createElement("strong");name.textContent=movie.title;
+    movies.forEach((movie,index)=>{
+      const card=document.createElement("button");card.type="button";card.className="library-card";
+      card.setAttribute("aria-label","Start a movie night with "+movie.title);
+      const art=document.createElement("div");art.className="library-art";
+      const artIndex=document.createElement("span");artIndex.className="library-art-index";
+      artIndex.textContent=index===0?"FEATURED":"OUR COLLECTION";
+      const title=document.createElement("span");title.className="library-art-label";
+      title.textContent=movie.title;
+      const play=document.createElement("span");play.className="library-art-play";play.textContent="▶";
+      art.append(artIndex,title,play);
+      const body=document.createElement("div");body.className="library-info";
+      const heading=document.createElement("strong");heading.textContent=movie.title;
       const meta=document.createElement("small");
-      meta.textContent=(movie.isMkv ? "MKV · conversion recommended" : "Ready for playback")+
-        (movie.file_size ? " · "+formatBytes(movie.file_size) : "");
-      body.append(name,meta);card.append(icon,body);root.append(card);
+      meta.className=movie.isMkv?"warning-format":"ready-format";
+      meta.textContent=(movie.isMkv?"⚠ MKV · may not play":"▶ Ready to watch")+
+        (movie.file_size?" · "+formatBytes(movie.file_size):"");
+      body.append(heading,meta);card.append(art,body);
+      card.addEventListener("click",()=>startMovieNight(movie));
+      root.append(card);
     });
   }catch(error){
     root.replaceChildren();
-    const p=document.createElement("div");p.className="muted-panel";
-    p.textContent="Couldn't read the Supabase movie library: "+error.message;
-    root.append(p);
+    const empty=document.createElement("div");empty.className="muted-panel";
+    empty.textContent="We couldn't load the collection right now. "+(error?.message||"Try refreshing the page.");
+    root.append(empty);
   }
 }
 async function loadVideos() {
@@ -308,7 +365,7 @@ function renderVideos() {
   $("videoCount").textContent=String(state.videos.length);
   if(!state.videos.length){
     const p=document.createElement("p");p.className="muted";
-    p.textContent="No movies yet. Upload directly to the cinema-library bucket in Supabase.";
+    p.textContent="No films in our collection yet. Add a movie to Supabase Storage and refresh.";
     list.append(p);return;
   }
   state.videos.forEach((video)=>{
@@ -359,6 +416,7 @@ async function applyPlayback(incoming) {
   $("seekBar").disabled=!selection;
   renderVideos();
   if(!selection){
+    $("playerFormatWarning").hidden=true;
     player.pause();
     $("playerEmpty").hidden=false;player.hidden=true;
     $("nowPlayingTitle").textContent="No video selected";
@@ -371,6 +429,10 @@ async function applyPlayback(incoming) {
     if(!video)return;
   }
   $("nowPlayingTitle").textContent=video.title;
+  $("playerFormatWarning").hidden=!video.isMkv;
+  if(video.isMkv && state.sourceVideoId!==selection){
+    notify("MKV detected. Most browsers can't play this format. Convert to MP4 if playback fails.");
+  }
   $("playerEmpty").hidden=true;player.hidden=false;
   if(state.sourceVideoId!==selection){
     const token=++state.applyToken;
@@ -473,6 +535,11 @@ async function boot() {
   $("chooseKittu").addEventListener("click",()=>selectPersona("Kittu"));
   $("chooseSubbu").addEventListener("click",()=>selectPersona("Subbu"));
   $("heroLoginBtn").addEventListener("click", signIn);
+  $("featuredStartBtn").addEventListener("click",()=>{
+    const id=$("featuredStartBtn").dataset.movieId;
+    const movie=dashboardMovieData.find(x=>x.id===id)||null;
+    startMovieNight(movie);
+  });
   $("logoutBtn").addEventListener("click", signOut);
   $("createForm").addEventListener("submit", createRoom);
   $("joinForm").addEventListener("submit", joinForm);

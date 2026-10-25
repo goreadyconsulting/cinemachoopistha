@@ -3,115 +3,171 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d0e12">
-  <meta name="description" content="Cinema Choopistha — your private cinema, together.">
-  <title>Cinema Choopistha — Watch together</title>
+  <meta name="theme-color" content="#09090e">
+  <meta name="description" content="Cinema Choopistha — your own little streaming universe, just for two.">
+  <title>Cinema Choopistha — Our little movie universe</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <div class="glow glow-one"></div><div class="glow glow-two"></div>
   <header class="topbar">
-    <a class="logo" href="./" aria-label="Cinema Choopistha home">
-      <span class="logo-icon">▶</span><span>CINEMA <strong>CHOOPISTHA</strong></span>
+    <a class="brand" href="./" aria-label="Cinema Choopistha homepage">
+      <span class="brand-mark" aria-hidden="true">C<span>♥</span></span>
+      <span class="brand-words">CINEMA <strong>CHOOPISTHA</strong></span>
     </a>
+    <nav class="top-nav" id="topNav" hidden aria-label="Main navigation">
+      <a href="#dashboardView" id="navHomeBtn">Home</a>
+      <a href="#librarySection" id="navLibraryBtn">Our library</a>
+      <a href="#roomsSection">Watch together</a>
+    </nav>
     <div class="top-actions">
-      <span class="eyebrow desktop-only">YOUR SCREEN. EVERYONE'S SHOW.</span>
-      <button class="button button-bright" id="loginBtn">Choose profile <span>↗</span></button>
+      <button class="button button-primary small" id="loginBtn">Choose profile <span>→</span></button>
       <div class="user-chip" id="userBar" hidden>
-        <img id="userAvatar" alt="" width="32" height="32">
-        <span id="userName"></span>
-        <button class="text-button" id="logoutBtn">Exit</button>
+        <span class="user-avatar" id="userAvatarBadge" aria-hidden="true">♥</span>
+        <img id="userAvatar" width="30" height="30" alt="" hidden>
+        <span id="userName">Guest</span>
+        <button class="icon-button signout" id="logoutBtn" aria-label="Switch profile" title="Switch profile">↗</button>
       </div>
     </div>
   </header>
 
-  <main class="site-main" id="loginView">
-    <div class="hero-wrap">
-      <section class="hero-content">
-        <span class="pill"><span class="dot"></span> THE WATCH PARTY STARTS HERE</span>
-        <h1>Good films.<br>Better <em>together.</em></h1>
-        <p class="hero-lede">Create a private screening room. Invite one friend. Press play, pause or rewind — everyone stays on the same scene.</p>
-        <span class="guest-label">CHOOSE YOUR PROFILE</span>
+  <main id="loginView" class="login-view">
+    <div class="login-cinema-backdrop" aria-hidden="true"></div>
+    <div class="login-shade" aria-hidden="true"></div>
+    <div class="login-inner">
+      <div class="login-topline"><span class="eyebrow"><span class="signal"></span> AN INVITATION FOR TWO</span></div>
+      <div class="login-heading">
+        <span class="kicker">MOVIE NIGHTS, MADE PERSONAL</span>
+        <h1>Just us.<br><em>One more episode.</em></h1>
+        <p>No distance, no separate screens. Pick your profile and settle in for a night that's ours.</p>
+      </div>
+      <div class="profile-panel">
+        <h2>Who's watching tonight?</h2>
+        <p>Pick your side of the sofa.</p>
         <div class="guest-options" role="group" aria-label="Choose who is watching">
-          <button type="button" class="guest-choice" id="chooseKittu" aria-pressed="false"><span class="guest-monogram">K</span><strong>Kittu</strong><small>Profile 01</small></button>
-          <button type="button" class="guest-choice" id="chooseSubbu" aria-pressed="false"><span class="guest-monogram">S</span><strong>Subbu</strong><small>Profile 02</small></button>
+          <button class="guest-choice" type="button" id="chooseKittu" aria-pressed="false">
+            <span class="profile-picture profile-kittu" aria-hidden="true"><span>K</span><i>♥</i></span>
+            <strong>Kittu</strong>
+            <small>THE FIRST SEAT</small>
+          </button>
+          <button class="guest-choice" type="button" id="chooseSubbu" aria-pressed="false">
+            <span class="profile-picture profile-subbu" aria-hidden="true"><span>S</span><i>✦</i></span>
+            <strong>Subbu</strong>
+            <small>THE OTHER HALF</small>
+          </button>
         </div>
-        <button class="button button-bright button-large" id="heroLoginBtn" disabled>Choose a profile first <span>↗</span></button>
-        <p class="hero-note">Only Kittu and Subbu can enter. No password required.</p>
-        <div class="feature-pills">
-          <span>◉ Synchronized playback</span><span>◈ Two-person rooms</span><span>▣ Shared movie library</span>
-        </div>
-      </section>
-      <section class="hero-poster" aria-label="Movie night illustration">
-        <div class="poster-outer">
-          <div class="poster-top"><span class="rec-dot"></span> NOW SCREENING <span class="poster-live">LIVE ROOM</span></div>
-          <div class="poster-frame"><div class="poster-moon"></div><div class="poster-horizon"></div><div class="poster-title">THE NIGHT<br>IS OURS</div><div class="poster-sub">A FILM NIGHT, SHARED</div></div>
-          <div class="poster-controls"><span>Ⅱ</span><span class="fake-timeline"><i></i></span><span>01:24 / 02:15</span></div>
-        </div>
-        <div class="floating-ticket"><span>● ● ●</span><strong>PLAYING IN SYNC</strong><small>Every friend. Every frame.</small></div>
-      </section>
+        <button class="button button-primary enter-button" id="heroLoginBtn" disabled>Choose your profile <span>→</span></button>
+        <span class="privacy-line">♡ &nbsp; A cinema made for two. No passwords required.</span>
+      </div>
     </div>
   </main>
 
-  <main class="site-main dashboard" id="dashboardView" hidden>
-    <div class="dashboard-heading"><div><span class="section-kicker">YOUR PRIVATE CINEMA</span><h1>What are we<br><em>watching tonight?</em></h1><p>Start a screening, choose a movie from your shared library, and watch together.</p></div><div class="large-sparkle" aria-hidden="true">✳</div></div>
-    <div class="dashboard-actions">
-      <section class="action-card"><div class="action-icon">✦</div><h2>Host a screening</h2><p>Make a private room and invite your friends.</p>
-        <form id="createForm"><label for="roomName">ROOM NAME</label><div class="form-row"><input id="roomName" required maxlength="60" placeholder="Friday night cinema" autocomplete="off"><button class="button button-bright" type="submit">Create room ↗</button></div></form>
+  <main id="dashboardView" class="dashboard-view" hidden>
+    <section class="featured" id="featuredSection" aria-labelledby="featureHeading">
+      <div class="featured-bg" aria-hidden="true"></div>
+      <div class="featured-overlay" aria-hidden="true"></div>
+      <div class="featured-content">
+        <div class="featured-tag"><span class="red-dot"></span> TONIGHT'S FEATURE</div>
+        <p class="featured-intro" id="featureEyebrow">WELCOME TO OUR CINEMA</p>
+        <h1 id="featureHeading"><span id="featureTitle">Our next movie night</span><span class="title-dot">.</span></h1>
+        <p id="featureSubtitle" class="feature-subtitle">One film. Two seats. All the moments in between.</p>
+        <div class="feature-meta"><span class="age-pill">CC</span><span id="featureMeta">Our shared collection</span><span>♡ Made for two</span></div>
+        <div class="feature-actions">
+          <button class="button button-primary hero-watch" id="featuredStartBtn"><span aria-hidden="true">▶</span> Start movie night</button>
+          <a class="button button-glass" href="#librarySection"><span aria-hidden="true">ⓘ</span> Explore library</a>
+        </div>
+      </div>
+      <div class="featured-bottom"><span class="brand-watermark">CC<span>♥</span> ORIGINAL EXPERIENCE</span><span>ALL THE GOOD STORIES ARE BETTER TOGETHER</span></div>
+    </section>
+
+    <div class="dashboard-content">
+      <section class="hello-row"><div><span class="section-label">YOUR PRIVATE UNIVERSE</span><h2>Hey, <span id="dashboardName">you</span> <span class="heart-sparkle">♥</span></h2><p>There's always room for one more movie night.</p></div><div class="together-pill"><span class="heart-symbol">♥</span> Kittu + Subbu <span class="together-sparkle">✦</span></div></section>
+
+      <section class="library-section" id="librarySection" aria-labelledby="libraryHeading">
+        <div class="section-head"><div><span class="section-label">HANDPICKED FOR OUR NIGHTS</span><h2 id="libraryHeading">Our movie collection <span class="heading-star">✦</span></h2></div><button class="subtle-button" id="refreshLibraryDashboard">↻ Refresh library</button></div>
+        <div class="library-dashboard" id="libraryDashboard" aria-live="polite"><div class="skeleton-card"><span class="skeleton-shimmer"></span></div></div>
+        <p class="collection-note" id="libraryHint">Your movies are loaded from our private Supabase library. Movie files are managed there—not on this website.</p>
       </section>
-      <section class="action-card"><div class="action-icon violet">⌁</div><h2>Join the party</h2><p>Got an invite code? Join your friend (two guests max).</p>
-        <form id="joinForm"><label for="inviteCode">INVITE CODE</label><div class="form-row"><input id="inviteCode" required maxlength="32" placeholder="Paste your invite code" autocomplete="off"><button class="button button-outline" type="submit">Join room →</button></div></form>
+
+      <section id="roomsSection" class="room-hub" aria-labelledby="roomsHeading">
+        <div class="section-head"><div><span class="section-label">SAME SCENE, SAME MOMENT</span><h2 id="roomsHeading">Let's watch together <span class="heading-star">♥</span></h2></div></div>
+        <div class="watch-cards">
+          <div class="watch-card host-card">
+            <span class="card-number">01 / HOST</span><div class="watch-icon">✳</div>
+            <h3>Make tonight<br>our movie night.</h3>
+            <p>Set the scene, create a private cinema, and invite your favorite person.</p>
+            <form id="createForm" class="room-form">
+              <label class="sr-only" for="roomName">Room name</label>
+              <input id="roomName" type="text" maxlength="60" required value="Our Movie Night" placeholder="Name your movie night" autocomplete="off">
+              <button class="button button-primary" type="submit">Create our room <span>→</span></button>
+            </form>
+          </div>
+          <div class="watch-card guest-card">
+            <span class="card-number">02 / JOIN</span><div class="watch-icon outline-heart">♡</div>
+            <h3>They're waiting.<br>Join the screen.</h3>
+            <p>Have their invite code? Drop it here and pick up right where they are.</p>
+            <form id="joinForm" class="room-form">
+              <label class="sr-only" for="inviteCode">Invite code</label>
+              <input id="inviteCode" type="text" maxlength="32" required placeholder="Paste your invite code" autocomplete="off">
+              <button class="button button-secondary" type="submit">Join their room <span>→</span></button>
+            </form>
+          </div>
+        </div>
       </section>
+
+      <section class="rooms-section" aria-labelledby="yourRoomsHeading">
+        <div class="section-head"><div><span class="section-label">WHERE WE LEFT OFF</span><h2 id="yourRoomsHeading">Our watch rooms</h2></div><button class="subtle-button" id="refreshRoomsBtn">↻ Refresh rooms</button></div>
+        <div class="rooms-list" id="roomsList"><div class="muted-panel">Our watch rooms will appear here.</div></div>
+      </section>
+      <div class="end-note"><span>♥</span><p>Here's to all the nights we stayed up for “just one more”.</p><span>♥</span></div>
     </div>
-    <div class="your-rooms-head"><div><span class="section-kicker">PICK UP WHERE YOU LEFT OFF</span><h2>Your rooms</h2></div><button class="text-button" id="refreshRoomsBtn">↻ Refresh</button></div>
-    <div class="rooms-list" id="roomsList"><div class="muted-panel">Your screenings will appear here.</div></div>
-    <div class="your-rooms-head"><div><span class="section-kicker">STORED IN SUPABASE</span><h2>Shared movie library</h2></div><button class="text-button" id="refreshLibraryDashboard">↻ Refresh movies</button></div>
-    <div class="library-dashboard" id="libraryDashboard"><div class="muted-panel">Loading your movies…</div></div>
-    <p class="helper-line">Upload or remove movies in Supabase Storage → cinema-library. Movies appear here automatically after refresh. MKV files may need conversion to play in browsers.</p>
   </main>
 
-  <main class="site-main screening" id="roomView" hidden>
-    <nav class="breadcrumbs"><button class="text-button" id="backBtn">← All rooms</button><span class="crumb-divider">/</span><span id="crumbName">Screening room</span></nav>
-    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Kittu and Subbu can share playback controls. Two seats maximum.</p></div><div class="room-heading-actions"><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button><button class="button button-outline" id="leaveSeatBtn">Leave room</button></div></div>
-    <div class="watch-layout">
-      <section class="screen-column">
-        <div class="player-shell">
-          <div class="player-empty" id="playerEmpty"><span class="empty-reel">◉</span><h2>Your screen is waiting</h2><p>Choose a film from the shared library to start your screening.</p></div>
-          <video id="player" playsinline preload="metadata" hidden></video>
-          <button id="joinPlaybackBtn" class="join-playback" hidden>▶ Tap to play on this device</button>
-        </div>
-        <div class="player-bottom">
-          <div class="now-playing"><div class="now-playing-symbol">♫</div><div><span class="tiny-caption">NOW PLAYING</span><h2 id="nowPlayingTitle">No video selected</h2></div></div>
-          <span class="sync-status" id="syncStatus"><span class="dot"></span> Waiting</span>
-        </div>
-        <div class="transport" id="transport">
-          <button class="play-toggle" id="playPauseBtn" disabled aria-label="Play or pause">▶</button>
-          <span class="timecode" id="currentTime">0:00</span>
-          <input type="range" id="seekBar" min="0" max="1000" value="0" step="1" disabled aria-label="Seek playback">
-          <span class="timecode" id="duration">0:00</span>
-          <button class="icon-button" id="muteBtn" title="Mute on this device">◖))</button>
-          <button class="icon-button" id="fullscreenBtn" title="Fullscreen">⛶</button>
-        </div>
-        <p class="helper-line">Anyone in this room can change the video, play, pause or seek. Your volume is yours.</p>
-      </section>
-      <aside class="room-sidebar">
-        <div class="sidebar-section">
-          <div class="sidebar-title"><h2>Movie library</h2><span class="counter" id="videoCount">0</span></div>
+  <main id="roomView" class="screening-view" hidden>
+    <div class="cinema-room-bg" aria-hidden="true"></div>
+    <div class="room-container">
+      <nav class="breadcrumbs"><button class="back-link" id="backBtn">← Back to the movies</button><span>/</span><span id="crumbName">Our room</span></nav>
+      <div class="room-heading">
+        <div><span class="section-label"><span class="red-dot"></span> OUR PRIVATE SCREENING</span><h1 id="currentRoomName">Our Movie Night</h1><p id="roomSubhead">Kittu &amp; Subbu · Two seats · One perfectly synced screen</p></div>
+        <div class="room-heading-actions"><button class="button button-secondary" id="copyInviteBtn">↗ Invite your person</button><button class="subtle-button" id="leaveSeatBtn">Leave room</button></div>
+      </div>
+      <div class="watch-layout">
+        <section class="screen-column">
+          <div class="player-shell">
+            <div class="player-empty" id="playerEmpty"><div class="big-reel" aria-hidden="true">▶</div><span class="section-label">YOUR CINEMA IS READY</span><h2>Let the magic begin.</h2><p>Choose a film from the collection and watch in perfect sync.</p></div>
+            <video id="player" playsinline preload="metadata" hidden></video>
+            <button id="joinPlaybackBtn" class="join-playback" hidden>▶ Tap to watch on this device</button>
+          </div>
+          <div class="screen-details">
+            <div class="now-playing"><span class="now-icon">♪</span><div><span class="eyebrow-small">NOW SHOWING</span><h2 id="nowPlayingTitle">Nothing playing yet</h2></div></div>
+            <div class="sync-status" id="syncStatus"><span class="green-dot"></span> Waiting to connect</div>
+          </div>
+          <div class="transport" id="transport">
+            <button id="playPauseBtn" class="play-toggle" disabled aria-label="Play or pause">▶</button>
+            <span id="currentTime" class="timecode">0:00</span>
+            <input id="seekBar" type="range" min="0" max="1000" value="0" step="1" disabled aria-label="Seek playback">
+            <span id="duration" class="timecode">0:00</span>
+            <button id="muteBtn" class="icon-button" title="Mute on this device" aria-label="Toggle sound">◖))</button>
+            <button id="fullscreenBtn" class="icon-button" title="Fullscreen" aria-label="Fullscreen">⛶</button>
+          </div>
+          <div class="screen-footnote"><span>↔ Playback is shared</span><span>♡ Your volume is yours</span></div>
+          <div class="format-warning" id="playerFormatWarning" hidden>⚠ This file is MKV. Some browsers cannot play MKV or HEVC video. An H.264/AAC MP4 is recommended.</div>
+        </section>
+        <aside class="room-sidebar">
+          <div class="aside-header"><span class="section-label">TONIGHT'S LINEUP</span><h2>Pick our next film</h2><p>Your private shared movie collection</p></div>
           <div id="videosList" class="video-list"><p class="muted">Loading movies…</p></div>
-          <button type="button" class="button button-outline library-refresh" id="refreshLibraryRoom">↻ Refresh library</button>
-          <p class="upload-status">Add movies directly in Supabase Storage → <strong>cinema-library</strong>. MP4 is recommended for playback.</p>
-        </div>
-        <div class="sidebar-section people-section"><div class="sidebar-title"><h2>In the room</h2><span class="counter" id="peopleCount">0</span></div><div id="peopleList" class="people-list"><p class="muted">Connecting…</p></div></div>
-        <div class="room-code"><div><span class="tiny-caption">ROOM INVITE CODE</span><strong id="roomCode">—</strong></div><button class="icon-button" id="copyCodeBtn" title="Copy code">⧉</button></div>
-      </aside>
+          <div class="aside-library-bottom"><span id="videoCount">0</span><span>films in the collection</span><button id="refreshLibraryRoom" class="subtle-button">↻ Refresh</button></div>
+          <div class="side-divider"></div>
+          <div class="sidebar-section people-section"><div class="sidebar-title"><h2>On the sofa <span class="heading-star">♥</span></h2><span class="counter" id="peopleCount">0</span></div><div class="people-list" id="peopleList"><p class="muted">Connecting…</p></div></div>
+          <div class="room-code"><div><span class="eyebrow-small">OUR INVITE CODE</span><strong id="roomCode">—</strong></div><button class="icon-button" id="copyCodeBtn" title="Copy code" aria-label="Copy invite code">⧉</button></div>
+        </aside>
+      </div>
     </div>
   </main>
-
-  <footer class="footer"><span>© Cinema Choopistha</span><span>Better stories are shared.</span></footer>
+  <footer class="footer"><a class="footer-brand" href="./">CINEMA CHOOPISTHA <span>♥</span></a><span>Made for two. Meant to be shared.</span><span>Just Kittu &amp; Subbu.</span></footer>
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>
 </html>

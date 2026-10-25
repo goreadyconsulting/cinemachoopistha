@@ -1,6 +1,6 @@
-# Cinema Choopistha
+# Cinema Choopistha — our little movie universe
 
-A two-person synchronized watch room with a **Supabase Storage movie library**.
+A cinematic, couple-focused streaming experience for Kittu & Subbu, with a **Supabase Storage movie library**, custom artwork, Netflix-inspired home screen and synchronized two-person watch rooms.
 
 - Site: https://goreadyconsulting.github.io/cinemachoopistha/
 - Supabase project: https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau
@@ -55,3 +55,15 @@ The \`-map 0:a:0?\` is optional when no audio stream exists. Conversion can requ
 ## Applied database migrations
 
 See \`supabase/migrations/\` for the SQL already applied to the project's database.
+
+## Frontend design (October 2026)
+
+- Profile chooser: two illustrated cards for Kittu and Subbu
+- Cinematic feature banner: displays the first movie in Supabase Storage, with no dummy movie listing
+- Netflix-inspired collection shelf: cards derived from actual movie objects in `cinema-library`
+- Human-readable movie titles parsed from filenames (for example, `Ante.Sundaraniki.2022.1080p....mkv` becomes **Ante Sundaraniki (2022)**)
+- If MKV and MP4 of the same named movie are both present, MP4 is preferred
+- Featured play and movie cards create a room and prepare the selected film
+- Watch page retains room playback synchronization and private member presence
+- Artwork is an original SVG visual fallback, not an official film poster
+- No movie-upload buttons on the website
