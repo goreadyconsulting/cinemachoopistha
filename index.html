@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d0e12">
+  <meta name="description" content="Cinema Choopistha — your private cinema, together.">
+  <title>Cinema Choopistha — Watch together</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <div class="glow glow-one"></div><div class="glow glow-two"></div>
+  <header class="topbar">
+    <a class="logo" href="./" aria-label="Cinema Choopistha home">
+      <span class="logo-icon">▶</span><span>CINEMA <strong>CHOOPISTHA</strong></span>
+    </a>
+    <div class="top-actions">
+      <span class="eyebrow desktop-only">YOUR SCREEN. EVERYONE'S SHOW.</span>
+      <button class="button button-bright" id="loginBtn">Sign in with GitHub <span>↗</span></button>
+      <div class="user-chip" id="userBar" hidden>
+        <img id="userAvatar" alt="" width="32" height="32">
+        <span id="userName"></span>
+        <button class="text-button" id="logoutBtn">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="site-main" id="loginView">
+    <div class="hero-wrap">
+      <section class="hero-content">
+        <span class="pill"><span class="dot"></span> THE WATCH PARTY STARTS HERE</span>
+        <h1>Good films.<br>Better <em>together.</em></h1>
+        <p class="hero-lede">Create a private screening room. Bring your friends. Press play, pause or rewind — everyone stays on the same scene.</p>
+        <button class="button button-bright button-large" id="heroLoginBtn">Continue with GitHub <span>↗</span></button>
+        <p class="hero-note">No passwords to remember. Just your GitHub account.</p>
+        <div class="feature-pills">
+          <span>◉ Synchronized playback</span><span>◈ Private rooms</span><span>↑ Upload your videos</span>
+        </div>
+      </section>
+      <section class="hero-poster" aria-label="Movie night illustration">
+        <div class="poster-outer">
+          <div class="poster-top"><span class="rec-dot"></span> NOW SCREENING <span class="poster-live">LIVE ROOM</span></div>
+          <div class="poster-frame"><div class="poster-moon"></div><div class="poster-horizon"></div><div class="poster-title">THE NIGHT<br>IS OURS</div><div class="poster-sub">A FILM NIGHT, SHARED</div></div>
+          <div class="poster-controls"><span>Ⅱ</span><span class="fake-timeline"><i></i></span><span>01:24 / 02:15</span></div>
+        </div>
+        <div class="floating-ticket"><span>● ● ●</span><strong>PLAYING IN SYNC</strong><small>Every friend. Every frame.</small></div>
+      </section>
+    </div>
+  </main>
+
+  <main class="site-main dashboard" id="dashboardView" hidden>
+    <div class="dashboard-heading"><div><span class="section-kicker">YOUR PRIVATE CINEMA</span><h1>What are we<br><em>watching tonight?</em></h1><p>Start a new screening, or join one already in progress.</p></div><div class="large-sparkle" aria-hidden="true">✳</div></div>
+    <div class="dashboard-actions">
+      <section class="action-card"><div class="action-icon">✦</div><h2>Host a screening</h2><p>Make a private room and invite your friends.</p>
+        <form id="createForm"><label for="roomName">ROOM NAME</label><div class="form-row"><input id="roomName" required maxlength="60" placeholder="Friday night cinema" autocomplete="off"><button class="button button-bright" type="submit">Create room ↗</button></div></form>
+      </section>
+      <section class="action-card"><div class="action-icon violet">⌁</div><h2>Join the party</h2><p>Got an invite link or code? Come right in.</p>
+        <form id="joinForm"><label for="inviteCode">INVITE CODE</label><div class="form-row"><input id="inviteCode" required maxlength="32" placeholder="Paste your invite code" autocomplete="off"><button class="button button-outline" type="submit">Join room →</button></div></form>
+      </section>
+    </div>
+    <div class="your-rooms-head"><div><span class="section-kicker">PICK UP WHERE YOU LEFT OFF</span><h2>Your rooms</h2></div><button class="text-button" id="refreshRoomsBtn">↻ Refresh</button></div>
+    <div class="rooms-list" id="roomsList"><div class="muted-panel">Your screenings will appear here.</div></div>
+  </main>
+
+  <main class="site-main screening" id="roomView" hidden>
+    <nav class="breadcrumbs"><button class="text-button" id="backBtn">← All rooms</button><span class="crumb-divider">/</span><span id="crumbName">Screening room</span></nav>
+    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Invite your friends. The controls are shared.</p></div><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button></div>
+    <div class="watch-layout">
+      <section class="screen-column">
+        <div class="player-shell">
+          <div class="player-empty" id="playerEmpty"><span class="empty-reel">◉</span><h2>Your screen is waiting</h2><p>Upload a video using the panel, then start the show.</p></div>
+          <video id="player" playsinline preload="metadata" hidden></video>
+          <button id="joinPlaybackBtn" class="join-playback" hidden>▶ Tap to play on this device</button>
+        </div>
+        <div class="player-bottom">
+          <div class="now-playing"><div class="now-playing-symbol">♫</div><div><span class="tiny-caption">NOW PLAYING</span><h2 id="nowPlayingTitle">No video selected</h2></div></div>
+          <span class="sync-status" id="syncStatus"><span class="dot"></span> Waiting</span>
+        </div>
+        <div class="transport" id="transport">
+          <button class="play-toggle" id="playPauseBtn" disabled aria-label="Play or pause">▶</button>
+          <span class="timecode" id="currentTime">0:00</span>
+          <input type="range" id="seekBar" min="0" max="1000" value="0" step="1" disabled aria-label="Seek playback">
+          <span class="timecode" id="duration">0:00</span>
+          <button class="icon-button" id="muteBtn" title="Mute on this device">◖))</button>
+          <button class="icon-button" id="fullscreenBtn" title="Fullscreen">⛶</button>
+        </div>
+        <p class="helper-line">Anyone in this room can change the video, play, pause or seek. Your volume is yours.</p>
+      </section>
+      <aside class="room-sidebar">
+        <div class="sidebar-section">
+          <div class="sidebar-title"><h2>Up next</h2><span class="counter" id="videoCount">0</span></div>
+          <div id="videosList" class="video-list"><p class="muted">No videos yet.</p></div>
+          <label class="upload-drop" for="videoFile"><span class="upload-symbol">↑</span><strong>Upload a video</strong><small>MP4 or WebM · up to 50 MB</small><input type="file" id="videoFile" accept="video/mp4,video/webm,.mp4,.webm" hidden></label>
+          <p id="uploadStatus" class="upload-status" role="status"></p>
+        </div>
+        <div class="sidebar-section people-section"><div class="sidebar-title"><h2>In the room</h2><span class="counter" id="peopleCount">0</span></div><div id="peopleList" class="people-list"><p class="muted">Connecting…</p></div></div>
+        <div class="room-code"><div><span class="tiny-caption">ROOM INVITE CODE</span><strong id="roomCode">—</strong></div><button class="icon-button" id="copyCodeBtn" title="Copy code">⧉</button></div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="footer"><span>© Cinema Choopistha</span><span>Better stories are shared.</span></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
