@@ -15,7 +15,7 @@ function notify(message) {
   toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4500);
 }
 function displayName(user) {
-  return user?.user_metadata?.user_name || user?.user_metadata?.preferred_username || user?.user_metadata?.full_name || user?.email?.split("@")[0] || "Movie lover";
+  return user?.user_metadata?.display_name || user?.user_metadata?.user_name || "Guest";
 }
 function avatarUrl(user) { return user?.user_metadata?.avatar_url || ""; }
 function show(view) {
@@ -51,13 +51,31 @@ function safeAvatar(img, url, name) {
 function routeRoom(id) { history.replaceState({}, "", location.pathname + "?room=" + encodeURIComponent(id)); }
 function clearRoute() { history.replaceState({}, "", location.pathname); }
 async function signIn() {
-  const { error } = await db.auth.signInWithOAuth({ provider: "github", options: { redirectTo: window.location.href } });
-  if (error) notify(error.message);
+  const button = $("heroLoginBtn");
+  if (button.disabled) return;
+  setBusy(button, true, "Entering…");
+  try {
+    const requested = $("guestName").value.trim().slice(0, 28);
+    const name = requested || "Guest " + Math.floor(1000 + Math.random() * 9000);
+    const { data, error } = await db.auth.signInAnonymously({ options: { data: { display_name: name } } });
+    if (error) throw error;
+    state.user = data.user;
+    $("userName").textContent = displayName(data.user);
+    safeAvatar($("userAvatar"), avatarUrl(data.user), displayName(data.user));
+    const params = new URLSearchParams(location.search);
+    if (params.has("join")) await joinByCode(params.get("join"));
+    else if (params.has("room")) await openRoom(params.get("room"));
+    else await dashboard();
+  } catch (err) {
+    console.error(err);
+    notify("Guest entry failed: " + (err.message || "Unknown error") + ". Enable Anonymous Sign-ins in Supabase Authentication → Providers.");
+  } finally { setBusy(button, false); }
 }
 async function signOut() {
+  if (state.room) await db.rpc("leave_watch_room", { p_room_id: state.room.id });
   await leaveRoom();
   const { error } = await db.auth.signOut();
-  if (error) notify(error.message);
+  if (error) { notify(error.message); return; }
   state.user = null;
   clearRoute(); show("loginView");
 }
@@ -88,6 +106,32 @@ async function dashboard() {
   clearRoute();
   show("dashboardView");
   await loadMyRooms();
+}
+async function leaveSeat() {
+  if (!state.room) return;
+  const roomId = state.room.id;
+  const { error } = await db.rpc("leave_watch_room", { p_room_id: roomId });
+  if (error) { notify(error.message); return; }
+  await dashboard();
+  notify("You left the room. Your seat is available for another guest.");
+}
+async function keepSeatAlive() {
+  if (!state.room || !state.user) return;
+  const roomId = state.room.id;
+  const invite = state.room.invite_code;
+  const { data: active, error } = await db.rpc("keep_watch_seat", { p_room_id: roomId });
+  if (state.room?.id !== roomId) return;
+  if (!error && active) return;
+  // Recover after device sleep or a briefly interrupted connection.
+  const result = await db.rpc("join_watch_room", { p_code: invite });
+  if (state.room?.id !== roomId) return;
+  if (result.error) {
+    notify(result.error.message || "The room is now full. Your seat expired.");
+    await dashboard();
+  } else {
+    const { data: latest } = await db.from("watch_rooms").select("*").eq("id", roomId).single();
+    if (latest && state.room?.id === roomId) applyPlayback(latest).catch(console.error);
+  }
 }
 async function createRoom(event) {
   event.preventDefault();
@@ -127,8 +171,19 @@ async function leaveRoom() {
 async function openRoom(id) {
   if (!state.user) return;
   await leaveRoom();
-  const { data, error } = await db.from("watch_rooms").select("*").eq("id", id).single();
-  if (error) { notify("Could not open room. You may need its invite code."); await dashboard(); return; }
+  let { data, error } = await db.from("watch_rooms").select("*").eq("id", id).single();
+  if (error) {
+    // The previous guest seat may have timed out after leaving the page.
+    const savedInvite = localStorage.getItem("cinemaInvite:" + id);
+    if (savedInvite) {
+      const rejoin = await db.rpc("join_watch_room", { p_code: savedInvite });
+      if (!rejoin.error) {
+        ({ data, error } = await db.from("watch_rooms").select("*").eq("id", id).single());
+      } else notify(rejoin.error.message);
+    }
+  }
+  if (error) { notify("Room unavailable, full, or invite expired. Use a valid invite code."); await dashboard(); return; }
+  localStorage.setItem("cinemaInvite:" + data.id, data.invite_code);
   state.room = data;
   routeRoom(data.id); show("roomView");
   $("currentRoomName").textContent = data.name;
@@ -333,6 +388,7 @@ async function boot() {
   $("joinForm").addEventListener("submit", joinForm);
   $("refreshRoomsBtn").addEventListener("click", loadMyRooms);
   $("backBtn").addEventListener("click", dashboard);
+  $("leaveSeatBtn").addEventListener("click", leaveSeat);
   $("videoFile").addEventListener("change", uploadVideo);
   $("copyInviteBtn").addEventListener("click", () => {
     if (state.room) copyText(location.origin + location.pathname + "?join=" + encodeURIComponent(state.room.invite_code));
@@ -374,6 +430,19 @@ async function boot() {
   player.addEventListener("ended", () => {
     if (state.room?.is_playing && state.room.video_id) sendControl(state.room.video_id, player.duration || 0, false);
   });
+  let heartbeatPending = false;
+  setInterval(async () => {
+    if (!state.room || heartbeatPending) return;
+    heartbeatPending = true;
+    try { await keepSeatAlive(); } catch (err) { console.warn("Seat heartbeat failed", err); }
+    finally { heartbeatPending = false; }
+  }, 20000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && state.room && !heartbeatPending) {
+      heartbeatPending = true;
+      keepSeatAlive().catch(console.error).finally(() => { heartbeatPending = false; });
+    }
+  });
   setInterval(() => {
     if (state.room?.video_id && document.visibilityState === "visible" && player.readyState >= 1) {
       // Correct drift, but never send a network write during this local adjustment.
@@ -389,6 +458,7 @@ async function boot() {
   if (!user) { show("loginView"); return; }
   state.user = user;
   $("userName").textContent = displayName(user);
+  $("guestName").value = displayName(user);
   const img = $("userAvatar"); safeAvatar(img, avatarUrl(user), displayName(user));
   show("dashboardView");
   const params = new URLSearchParams(location.search);

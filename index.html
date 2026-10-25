@@ -20,11 +20,11 @@
     </a>
     <div class="top-actions">
       <span class="eyebrow desktop-only">YOUR SCREEN. EVERYONE'S SHOW.</span>
-      <button class="button button-bright" id="loginBtn">Sign in with GitHub <span>↗</span></button>
+      <button class="button button-bright" id="loginBtn">Enter as guest <span>↗</span></button>
       <div class="user-chip" id="userBar" hidden>
         <img id="userAvatar" alt="" width="32" height="32">
         <span id="userName"></span>
-        <button class="text-button" id="logoutBtn">Sign out</button>
+        <button class="text-button" id="logoutBtn">Exit</button>
       </div>
     </div>
   </header>
@@ -34,11 +34,13 @@
       <section class="hero-content">
         <span class="pill"><span class="dot"></span> THE WATCH PARTY STARTS HERE</span>
         <h1>Good films.<br>Better <em>together.</em></h1>
-        <p class="hero-lede">Create a private screening room. Bring your friends. Press play, pause or rewind — everyone stays on the same scene.</p>
-        <button class="button button-bright button-large" id="heroLoginBtn">Continue with GitHub <span>↗</span></button>
-        <p class="hero-note">No passwords to remember. Just your GitHub account.</p>
+        <p class="hero-lede">Create a private screening room. Invite one friend. Press play, pause or rewind — everyone stays on the same scene.</p>
+        <label class="guest-label" for="guestName">YOUR DISPLAY NAME</label>
+        <input class="guest-name-input" id="guestName" maxlength="28" placeholder="What should we call you?" autocomplete="nickname">
+        <button class="button button-bright button-large" id="heroLoginBtn">Enter as guest <span>↗</span></button>
+        <p class="hero-note">No account required. Up to two guests per screening room.</p>
         <div class="feature-pills">
-          <span>◉ Synchronized playback</span><span>◈ Private rooms</span><span>↑ Upload your videos</span>
+          <span>◉ Synchronized playback</span><span>◈ Two-person rooms</span><span>↑ Upload your videos</span>
         </div>
       </section>
       <section class="hero-poster" aria-label="Movie night illustration">
@@ -58,7 +60,7 @@
       <section class="action-card"><div class="action-icon">✦</div><h2>Host a screening</h2><p>Make a private room and invite your friends.</p>
         <form id="createForm"><label for="roomName">ROOM NAME</label><div class="form-row"><input id="roomName" required maxlength="60" placeholder="Friday night cinema" autocomplete="off"><button class="button button-bright" type="submit">Create room ↗</button></div></form>
       </section>
-      <section class="action-card"><div class="action-icon violet">⌁</div><h2>Join the party</h2><p>Got an invite link or code? Come right in.</p>
+      <section class="action-card"><div class="action-icon violet">⌁</div><h2>Join the party</h2><p>Got an invite code? Join your friend (two guests max).</p>
         <form id="joinForm"><label for="inviteCode">INVITE CODE</label><div class="form-row"><input id="inviteCode" required maxlength="32" placeholder="Paste your invite code" autocomplete="off"><button class="button button-outline" type="submit">Join room →</button></div></form>
       </section>
     </div>
@@ -68,7 +70,7 @@
 
   <main class="site-main screening" id="roomView" hidden>
     <nav class="breadcrumbs"><button class="text-button" id="backBtn">← All rooms</button><span class="crumb-divider">/</span><span id="crumbName">Screening room</span></nav>
-    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Invite your friends. The controls are shared.</p></div><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button></div>
+    <div class="room-heading"><div><span class="section-kicker"><span class="live-indicator"></span> PRIVATE SCREENING</span><h1 id="currentRoomName">Cinema room</h1><p id="roomSubhead">Two guests maximum. All playback controls are shared.</p></div><div class="room-heading-actions"><button class="button button-outline" id="copyInviteBtn">⧉ Copy invite link</button><button class="button button-outline" id="leaveSeatBtn">Leave room</button></div></div>
     <div class="watch-layout">
       <section class="screen-column">
         <div class="player-shell">

@@ -4,9 +4,9 @@ A private synchronized movie-watch-party app, backed by Supabase and hosted on G
 
 ## What it does
 
-- GitHub sign-in through Supabase Authentication
+- Guest entry (Supabase anonymous sign-ins; no email, GitHub account or password)
 - Create rooms or join with an invite link/code
-- Multiple participants can pause, play, seek, and select videos
+- At most two active guests per room can pause, play, seek, and select videos
 - Live online-member presence
 - Private Supabase Storage upload and signed video playback URLs
 - Responsive design for desktop and mobile
@@ -19,15 +19,24 @@ A private synchronized movie-watch-party app, backed by Supabase and hosted on G
 
 The connected Supabase project already has the watch-party SQL migration applied.
 
-## Go live (two one-time dashboard actions)
+## Required Supabase setting (one-time)
 
-1. **GitHub OAuth**: Register a GitHub OAuth App at https://github.com/settings/developers with callback URL:
-   https://pqnuknmxstemsjxhpmau.supabase.co/auth/v1/callback
-   Put the GitHub OAuth client ID and secret into **Supabase → Authentication → Sign In / Providers → GitHub**. The GitHub client secret must stay inside the Supabase dashboard.
-2. **Redirect allowlist**: In **Supabase → Authentication → URL Configuration**, set the Site URL to:
-   https://goreadyconsulting.github.io/cinemachoopistha/
-   Add the same value to the Redirect URLs allowlist.
-3. **Hosting**: In **GitHub repository → Settings → Pages**, choose **Deploy from a branch**, branch **main**, folder **/(root)**, and save.
+**Enable Anonymous Sign-ins** at
+https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/auth/providers
+under Authentication > Sign In / Providers > Anonymous Sign-ins.
+
+No GitHub OAuth configuration is needed. Supabase creates a disposable user session behind the scenes, so RLS can protect rooms, uploads and playback.
+
+**Hosting**: GitHub Pages deploys from branch `main`, folder `/(root)`.
+
+## Two-guest seat rules
+
+- One room creator + one invited guest = two active guests maximum.
+- A third guest receives a "room is full" error, enforced by a serialized database join function.
+- The browser refreshes its active room seat every 20 seconds.
+- An inactive seat expires after 90 seconds (e.g. a guest closes their browser).
+- Click **Leave room** to release a seat immediately. Clicking **All rooms** merely pauses your seat heartbeat; it expires after 90 seconds, or can be resumed by re-entering the room.
+- Guest identity is bound to browser-local anonymous session. Clearing browser storage/signing out creates a new identity, not a permanent account.
 
 All site files are static: index.html, styles.css, app.js, and config.js. There is no build step.
 Only the public Supabase publishable key is included in config.js; data protection depends on database Row Level Security and Storage policies.
