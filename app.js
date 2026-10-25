@@ -6,7 +6,7 @@ const BUCKET="cinema-library";
 const POSTER_ANTE="https://www.impawards.com/intl/india/2022/posters/ante_sundharaniki_xlg.jpg";
 const $=(id)=>document.getElementById(id);
 const player=$("player");
-const state={ user:null,persona:null,room:null,channel:null,movies:[],status:null,
+const state={ user:null,persona:null,selectedPersona:null,room:null,channel:null,movies:[],status:null,
   sourcePath:null,token:0,revision:-1,scrubbing:false,joining:false,heartbeat:false,
   pendingPlay:false,subtitleNames:[] };
 let toastTimer=null;
@@ -178,37 +178,79 @@ async function showHome({release=true}={}){
   show("homeView");
   await Promise.all([refreshMovies(),readStatus().catch(err=>inform(err.message))]);
 }
-async function enterPersona(persona){
-  if(state.joining)return;
+function choosePersona(persona){
+  if(!["Kittu","Subbu"].includes(persona))return;
+  state.selectedPersona=persona;
+  $("profilePicker").hidden=true;
+  $("pinStage").hidden=false;
+  $("pinProfileName").textContent=persona;
+  $("pinInitial").textContent=persona.charAt(0);
+  $("pinAvatar").className="profile-avatar pin-avatar "+(persona==="Kittu"?"avatar-kittu":"avatar-subbu");
+  $("pinInput").value="";
+  $("entryMessage").textContent="";
+  $("pinInput").focus();
+}
+function backToProfiles(){
+  state.selectedPersona=null;
+  $("pinInput").value="";
+  $("pinStage").hidden=true;
+  $("profilePicker").hidden=false;
+  $("entryMessage").textContent="";
+  $("chooseKittu").focus();
+}
+async function submitPin(event){
+  event.preventDefault();
+  if(state.joining || !state.selectedPersona)return;
+  const value=$("pinInput").value.trim();
+  if(!/^[0-9]{4}$/.test(value)){
+    $("entryMessage").textContent="Enter your four-digit PIN.";
+    return;
+  }
   state.joining=true;
-  $("entryMessage").textContent="Opening your cinema…";
-  $("chooseKittu").disabled=true;$("chooseSubbu").disabled=true;
-  try {
+  $("pinSubmitBtn").disabled=true;
+  $("pinSubmitBtn").textContent="Checking…";
+  $("entryMessage").textContent="";
+  try{
     let {data:{user}}=await db.auth.getUser();
     if(!user){
       const {data,error}=await db.auth.signInAnonymously();
       if(error)throw error;
       user=data.user;
     }
-    const {data:name,error:aliasError}=await db.rpc("claim_watch_alias",{p_persona:persona});
-    if(aliasError)throw aliasError;
-    state.user=user;state.persona=name;
-    $("entryMessage").textContent="";
+    const {data:approved,error:pinError}=await db.rpc("verify_cinema_pin",{
+      p_persona:state.selectedPersona,
+      p_pin:value
+    });
+    if(pinError)throw pinError;
+    if(!approved){
+      $("entryMessage").textContent="Incorrect PIN or temporarily locked. Please try again.";
+      $("pinInput").value="";
+      $("pinInput").focus();
+      return;
+    }
+    state.user=user;
+    state.persona=state.selectedPersona;
+    state.selectedPersona=null;
+    $("pinInput").value="";
+    $("pinStage").hidden=true;
+    $("profilePicker").hidden=false;
     await showHome({release:false});
   }catch(err){
-    const message=err?.message||"Couldn't enter.";
-    $("entryMessage").textContent=message;
-    inform(message);
+    $("entryMessage").textContent=err?.message||"Couldn't sign in.";
   }finally{
-    $("chooseKittu").disabled=false;$("chooseSubbu").disabled=false;
     state.joining=false;
+    $("pinSubmitBtn").disabled=false;
+    $("pinSubmitBtn").innerHTML='Continue <span aria-hidden="true">→</span>';
   }
 }
 async function switchProfile(){
   if(state.room)await leaveCinema();
   const {error}=await db.auth.signOut();
   if(error){inform(error.message);return;}
-  state.user=null;state.persona=null;state.status=null;
+  state.user=null;state.persona=null;state.selectedPersona=null;state.status=null;
+  $("pinInput").value="";
+  $("pinStage").hidden=true;
+  $("profilePicker").hidden=false;
   show("loginView");$("entryMessage").textContent="";
 }
 async function fetchRoom(id){
@@ -422,13 +464,15 @@ async function updatePresenceFromStatus(){
   try{await readStatus();}catch(err){console.warn(err);}
 }
 function bindEvents(){
-  $("chooseKittu").addEventListener("click",()=>enterPersona("Kittu"));
-  $("chooseSubbu").addEventListener("click",()=>enterPersona("Subbu"));
-  $("switchProfileBtn").addEventListener("click",switchProfile);
-  $("homeLogo").addEventListener("click",event=>{
-    event.preventDefault();
-    if(state.user)showHome().catch(err=>inform(err.message));
+  $("chooseKittu").addEventListener("click",()=>choosePersona("Kittu"));
+  $("chooseSubbu").addEventListener("click",()=>choosePersona("Subbu"));
+  $("pinBackBtn").addEventListener("click",backToProfiles);
+  $("pinForm").addEventListener("submit",submitPin);
+  $("pinInput").addEventListener("input",()=>{
+    $("pinInput").value=$("pinInput").value.replace(/\D/g,"").slice(0,4);
+    $("entryMessage").textContent="";
   });
+  $("switchProfileBtn").addEventListener("click",switchProfile);
   $("watchTogetherBtn").addEventListener("click",()=>enterCinema(state.movies[0]||null));
   $("backHomeBtn").addEventListener("click",()=>showHome().catch(err=>inform(err.message)));
   $("refreshLibraryBtn").addEventListener("click",refreshMovies);
@@ -537,6 +581,9 @@ async function boot(){
     .select("persona").eq("user_id",user.id).maybeSingle();
   if(aliasError)console.warn(aliasError.message);
   if(!alias?.persona){show("loginView");return;}
+  // Existing unverified guest identities must enter their PIN once.
+  const {error:verificationError}=await db.rpc("get_cinema_status");
+  if(verificationError){show("loginView");return;}
   state.user=user;state.persona=alias.persona;
   show("homeView");
   await showHome({release:false});

@@ -13,31 +13,37 @@
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <header class="topbar" id="topbar">
-    <a class="wordmark" href="./" id="homeLogo" aria-label="Cinema Choopistha home">
-      <span class="wordmark-icon" aria-hidden="true">c<span>.</span></span>
-      <span>cinema <strong>choopistha</strong></span>
-    </a>
-    <div class="top-actions" id="topActions" hidden>
-      <span class="signed-in-name" id="signedInName">Kittu</span>
-      <button class="avatar-button" id="switchProfileBtn" type="button" title="Switch profile" aria-label="Switch profile">K</button>
-    </div>
-  </header>
+  <div class="top-actions" id="topActions" hidden>
+    <span class="signed-in-name" id="signedInName">Kittu</span>
+    <button class="avatar-button" id="switchProfileBtn" type="button" title="Switch profile" aria-label="Switch profile">K</button>
+  </div>
 
   <main id="loginView" class="login-view">
     <section class="profile-stage">
-      <span class="small-heart" aria-hidden="true">♥</span>
-      <h1>Who's watching?</h1>
-      <p>Movie nights, just us.</p>
-      <div class="profile-grid" role="group" aria-label="Choose a profile">
-        <button id="chooseKittu" class="profile-choice" type="button">
-          <span class="profile-avatar avatar-kittu"><span>K</span></span>
-          <strong>Kittu</strong>
-        </button>
-        <button id="chooseSubbu" class="profile-choice" type="button">
-          <span class="profile-avatar avatar-subbu"><span>S</span></span>
-          <strong>Subbu</strong>
-        </button>
+      <div id="profilePicker" class="profile-picker">
+        <span class="small-heart" aria-hidden="true">♥</span>
+        <h1>Who's watching?</h1>
+        <p>Movie nights, just us.</p>
+        <div class="profile-grid" role="group" aria-label="Choose a profile">
+          <button id="chooseKittu" class="profile-choice" type="button">
+            <span class="profile-avatar avatar-kittu"><span>K</span></span>
+            <strong>Kittu</strong>
+          </button>
+          <button id="chooseSubbu" class="profile-choice" type="button">
+            <span class="profile-avatar avatar-subbu"><span>S</span></span>
+            <strong>Subbu</strong>
+          </button>
+        </div>
+      </div>
+      <div class="pin-stage" id="pinStage" hidden>
+        <button class="pin-back" id="pinBackBtn" type="button">← Back</button>
+        <span class="profile-avatar pin-avatar avatar-kittu" id="pinAvatar"><span id="pinInitial">K</span></span>
+        <h2 id="pinProfileName">Kittu</h2>
+        <form id="pinForm" class="pin-form">
+          <label for="pinInput">Enter PIN</label>
+          <input id="pinInput" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" minlength="4" autocomplete="off" placeholder="••••" aria-label="Four-digit PIN" required>
+          <button id="pinSubmitBtn" class="pin-submit" type="submit">Continue <span aria-hidden="true">→</span></button>
+        </form>
       </div>
       <p class="entry-message" id="entryMessage" role="status" aria-live="polite"></p>
     </section>
