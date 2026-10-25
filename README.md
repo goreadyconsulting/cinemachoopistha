@@ -43,7 +43,9 @@ Only the public Supabase publishable key is included in config.js; data protecti
 
 ## Video limitations
 
-- Supported uploads: MP4 / WebM, up to **50 MB** each (starter configuration; Free plan storage cap).
+- Supported uploads: MP4 / WebM, up to **5 GB** each, using TUS resumable 6 MB chunks with a percentage progress bar. Re-select the **same file** after a network interruption to resume within 24 hours.
+- **Required:** In [Supabase Storage Settings](https://supabase.com/dashboard/project/pqnuknmxstemsjxhpmau/storage/settings), set **Global file size limit** to at least **5 GB** (bucket and database limits are already 5 GiB). The connected organisation has Pro, which permits this setting. Without changing the global limit, uploads above its configured value still fail.
+- Each private video uses a six-hour signed link when it is selected for playback.
 - Each viewer streams their own video from Supabase Storage; playback commands synchronize via Realtime.
 - The browser may block automatic playback with sound. The **Tap to play on this device** button solves this locally.
 - A recent HTML5 browser is required. H.264 MP4 works best across devices.
@@ -51,4 +53,4 @@ Only the public Supabase publishable key is included in config.js; data protecti
 
 ## Suggested next iteration
 
-Resumable large-file uploads, queue reorder/delete, subtitles, host/moderator privileges, reactions/chat, and a streaming CDN/transcoding pipeline for full-length feature films.
+Queue reorder/delete, subtitles, host/moderator privileges, reactions/chat, and a streaming CDN/transcoding pipeline for full-length feature films.

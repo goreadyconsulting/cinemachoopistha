@@ -96,7 +96,8 @@
         <div class="sidebar-section">
           <div class="sidebar-title"><h2>Up next</h2><span class="counter" id="videoCount">0</span></div>
           <div id="videosList" class="video-list"><p class="muted">No videos yet.</p></div>
-          <label class="upload-drop" for="videoFile"><span class="upload-symbol">↑</span><strong>Upload a video</strong><small>MP4 or WebM · up to 50 MB</small><input type="file" id="videoFile" accept="video/mp4,video/webm,.mp4,.webm" hidden></label>
+          <label class="upload-drop" for="videoFile"><span class="upload-symbol">↑</span><strong>Upload a video</strong><small>MP4 or WebM · up to 5 GB · resumable</small><input type="file" id="videoFile" accept="video/mp4,video/webm,.mp4,.webm" hidden></label>
+          <progress id="uploadProgress" class="upload-progress" value="0" max="100" hidden></progress>
           <p id="uploadStatus" class="upload-status" role="status"></p>
         </div>
         <div class="sidebar-section people-section"><div class="sidebar-title"><h2>In the room</h2><span class="counter" id="peopleCount">0</span></div><div id="peopleList" class="people-list"><p class="muted">Connecting…</p></div></div>

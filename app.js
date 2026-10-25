@@ -1,8 +1,11 @@
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.0/+esm";
 import { SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from "./config.js";
+import * as tus from "https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/+esm";
 
 const db = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+const MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
+const STORAGE_UPLOAD_ENDPOINT = "https://pqnuknmxstemsjxhpmau.storage.supabase.co/storage/v1/upload/resumable";
+let uploadInProgress = false;
 const $ = (id) => document.getElementById(id);
 const state = { user: null, room: null, videos: [], channel: null, sourceVideoId: null, applyToken: 0, scrubbing: false, lastAppliedRevision: -1 };
 let toastTimer = null;
@@ -226,35 +229,108 @@ function renderVideos() {
 async function uploadVideo(event) {
   const input = event.target;
   const file = input.files?.[0];
-  if (!file || !state.room) return;
+  if (!file || !state.room || uploadInProgress) return;
   input.value = "";
-  const type = file.type || (file.name.toLowerCase().endsWith(".webm") ? "video/webm" : "video/mp4");
-  if (!["video/mp4","video/webm"].includes(type)) return notify("Only MP4 and WebM videos are supported.");
-  if (file.size > MAX_FILE_BYTES) return notify("This project currently supports videos up to 50 MB.");
+  const extension = file.name.toLowerCase().endsWith(".webm") ? ".webm" : ".mp4";
+  const type = file.type || (extension === ".webm" ? "video/webm" : "video/mp4");
+  if (!["video/mp4","video/webm"].includes(type) || !/\.(mp4|webm)$/i.test(file.name)) {
+    return notify("Please select a supported MP4 or WebM movie.");
+  }
+  if (file.size > MAX_FILE_BYTES) return notify("Movies are currently limited to 5 GB each.");
   if (!file.size) return notify("That file is empty.");
   const roomId = state.room.id;
-  const path = roomId + "/" + state.user.id + "/" + crypto.randomUUID() + (type === "video/webm" ? ".webm" : ".mp4");
-  $("uploadStatus").textContent = "Uploading " + file.name + "… Please keep this tab open.";
+  const userId = state.user.id;
+  const uploadId = ["cinema-upload-v1", roomId, userId, file.name, file.size, file.lastModified].join("|");
+  let path = localStorage.getItem(uploadId);
+  if (!path) {
+    path = roomId + "/" + userId + "/" + crypto.randomUUID() + extension;
+    localStorage.setItem(uploadId, path);
+  }
   input.disabled = true;
+  uploadInProgress = true;
+  $("uploadProgress").hidden = false;
+  $("uploadProgress").value = 0;
+  $("uploadStatus").textContent = "Preparing " + file.name + "…";
   try {
-    const { error: uploadError } = await db.storage.from("watch-videos").upload(path, file, { contentType: type, upsert: false });
-    if (uploadError) throw uploadError;
+    const { data: { session }, error: sessionError } = await db.auth.getSession();
+    if (sessionError || !session) throw new Error("Your guest session expired. Re-enter as a guest.");
+    await new Promise(async (resolve, reject) => {
+      let upload;
+      try {
+        upload = new tus.Upload(file, {
+          endpoint: STORAGE_UPLOAD_ENDPOINT,
+          retryDelays: [0, 3000, 5000, 10000, 20000],
+          chunkSize: 6 * 1024 * 1024,
+          uploadDataDuringCreation: true,
+          removeFingerprintOnSuccess: true,
+          fingerprint: () => Promise.resolve(uploadId),
+          metadata: {
+            bucketName: "watch-videos",
+            objectName: path,
+            contentType: type,
+            cacheControl: "3600"
+          },
+          headers: { authorization: "Bearer " + session.access_token },
+          onBeforeRequest: async (req) => {
+            // Refresh the token if needed on long uploads. The server validates each request.
+            const { data: { session: current }, error } = await db.auth.getSession();
+            if (error || !current) throw new Error("Guest session expired during upload.");
+            req.setHeader("authorization", "Bearer " + current.access_token);
+          },
+          onProgress: (uploaded, total) => {
+            const percent = total ? uploaded / total * 100 : 0;
+            $("uploadProgress").value = Math.min(100, percent);
+            $("uploadStatus").textContent = "Uploading " + file.name + " — " +
+              percent.toFixed(1) + "% (" + formatBytes(uploaded) + " / " + formatBytes(total) + ")";
+          },
+          onSuccess: () => resolve(),
+          onError: (error) => reject(error)
+        });
+        const previous = await upload.findPreviousUploads();
+        if (previous.length) {
+          upload.resumeFromPreviousUpload(previous[0]);
+          $("uploadStatus").textContent = "Resuming " + file.name + "…";
+        }
+        upload.start();
+      } catch (error) { reject(error); }
+    });
     const title = file.name.replace(/\.[^.]+$/, "").slice(0, 180) || "Untitled video";
-    const { data, error: rowError } = await db.from("watch_videos")
-      .insert({ room_id: roomId, uploaded_by: state.user.id, object_path: path, title, mime_type: type, file_size: file.size })
+    let { data, error: rowError } = await db.from("watch_videos")
+      .insert({ room_id: roomId, uploaded_by: userId, object_path: path, title, mime_type: type, file_size: file.size })
       .select("*").single();
+    if (rowError?.code === "23505") {
+      // An earlier upload finished but the browser closed before the metadata was confirmed.
+      ({ data, error: rowError } = await db.from("watch_videos").select("*").eq("object_path", path).eq("room_id", roomId).single());
+    }
     if (rowError) throw rowError;
+    localStorage.removeItem(uploadId);
     if (state.room?.id === roomId) {
       await loadVideos();
       if (!state.room.video_id) await sendControl(data.id, 0, false);
     }
-    $("uploadStatus").textContent = "Upload complete ✓";
-    notify("Video uploaded to your private room.");
-  } catch (err) {
-    $("uploadStatus").textContent = "Upload failed: " + (err.message || "Unknown error");
-    notify(err.message || "Upload failed");
-  } finally { input.disabled = false; }
+    $("uploadProgress").value = 100;
+    $("uploadStatus").textContent = "Movie uploaded successfully ✓";
+    notify("Movie ready! You can select it from Up next.");
+  } catch (error) {
+    console.error("Resumable upload failed", error);
+    const message = error?.message || String(error);
+    const hint = /413|exceeds|file.?size|too large|entity too large/i.test(message)
+      ? " Increase the Global file size limit to 5 GB in Supabase Storage Settings."
+      : "";
+    $("uploadStatus").textContent = "Upload paused or failed: " + message + hint + " Select the same file to resume.";
+    notify("Upload interrupted." + (hint || " Select the file again to resume."));
+  } finally {
+    uploadInProgress = false;
+    input.disabled = false;
+  }
 }
+function formatBytes(value) {
+  const size = Math.max(0, Number(value) || 0);
+  return size >= 1024 ** 3
+    ? (size / 1024 ** 3).toFixed(2) + " GB"
+    : (size / 1024 ** 2).toFixed(1) + " MB";
+}
+
 async function sendControl(videoId, position, playing) {
   if (!state.room || !videoId) return;
   const id = state.room.id;
@@ -294,7 +370,7 @@ async function applyPlayback(incoming) {
     state.sourceVideoId = incoming.video_id;
     player.pause(); player.removeAttribute("src");
     $("joinPlaybackBtn").hidden = true;
-    const { data, error } = await db.storage.from("watch-videos").createSignedUrl(video.object_path, 3600);
+    const { data, error } = await db.storage.from("watch-videos").createSignedUrl(video.object_path, 21600);
     if (token !== state.applyToken || state.room?.video_id !== incoming.video_id) return;
     if (error || !data?.signedUrl) {
       state.sourceVideoId = null;
@@ -381,6 +457,9 @@ async function copyText(value) {
   catch (_) { notify("Copy failed. Try using your browser's address bar."); }
 }
 async function boot() {
+  window.addEventListener("beforeunload", (event) => {
+    if (uploadInProgress) { event.preventDefault(); event.returnValue = ""; }
+  });
   $("loginBtn").addEventListener("click", signIn);
   $("heroLoginBtn").addEventListener("click", signIn);
   $("logoutBtn").addEventListener("click", signOut);
