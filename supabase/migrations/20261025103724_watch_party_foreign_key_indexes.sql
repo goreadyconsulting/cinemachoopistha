@@ -1,0 +1,1 @@
+create index if not exists watch_rooms_video_idx on public.watch_rooms(video_id) where video_id is not null; create index if not exists watch_videos_uploaded_by_idx on public.watch_videos(uploaded_by);
